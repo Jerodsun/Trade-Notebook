@@ -233,3 +233,100 @@ h1 {
     padding: 8px 12px !important;
     font-size: 0.875rem !important;
 }
+
+/* Annotation System Styles */
+
+/* Annotation modal */
+#annotation-modal .modal-content {
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+#annotation-modal .modal-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+#annotation-modal .modal-footer {
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+/* Annotation list styling */
+#annotations-list {
+    padding: 0.5rem;
+}
+
+/* Custom styling for annotation cards */
+.annotation-card {
+    transition: transform 0.2s, box-shadow 0.2s;
+    margin-bottom: 8px;
+    border-radius: 6px;
+}
+
+.annotation-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Button styles */
+#add-annotation-button,
+#refresh-annotations-button {
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Annotation text field */
+#annotation-text {
+    resize: none;
+    border-radius: 6px;
+}
+
+/* Color indicators for annotations */
+.annotation-color-red {
+    border-left: 4px solid red;
+}
+
+.annotation-color-green {
+    border-left: 4px solid green;
+}
+
+.annotation-color-blue {
+    border-left: 4px solid blue;
+}
+
+.annotation-color-orange {
+    border-left: 4px solid orange;
+}
+
+.annotation-color-purple {
+    border-left: 4px solid purple;
+}
+
+/* Annotation coordinates display */
+#annotation-coordinates {
+    padding: 8px;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    font-family: monospace;
+    margin-top: 8px;
+}
+
+/* Styles for edit and delete buttons */
+.annotation-action-button {
+    padding: 2px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.annotation-action-button:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+.annotation-delete-button:hover {
+    color: #dc3545 !important;
+}

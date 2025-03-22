@@ -173,7 +173,6 @@ def calculate_stats(df):
         "change_percent": (df["close"].iloc[-1] - df["open"].iloc[0])
         / df["open"].iloc[0]
         * 100,
-        "volume": df["volume"].sum(),
     }
 
     # Volatility
@@ -530,14 +529,13 @@ def update_chart(data, chart_info, chart_type, indicators):
     if "datetime" in df.columns:
         df["datetime"] = pd.to_datetime(df["datetime"])
 
-    # Create figure with secondary y-axis for volume
+    # Create figure
     fig = make_subplots(
-        rows=2,
+        rows=1,
         cols=1,
         shared_xaxes=True,
         vertical_spacing=0.05,
-        row_heights=[0.8, 0.2],
-        subplot_titles=(chart_info.get("title", "SPX Price Data"), "Volume"),
+        subplot_titles=(chart_info.get("title", "SPX Price Data"),),
     )
 
     # Add price data based on chart type
@@ -573,18 +571,6 @@ def update_chart(data, chart_info, chart_type, indicators):
             row=1,
             col=1,
         )
-
-    # Add volume chart
-    fig.add_trace(
-        go.Bar(
-            x=df["datetime"],
-            y=df["volume"],
-            name="Volume",
-            marker=dict(color="rgba(0, 128, 255, 0.5)"),
-        ),
-        row=2,
-        col=1,
-    )
 
     # Add indicators
     if indicators:
@@ -680,7 +666,6 @@ def update_chart(data, chart_info, chart_type, indicators):
     fig.update_layout(
         height=800,
         xaxis_rangeslider_visible=False,
-        xaxis2_rangeslider_visible=False,
         showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
         margin=dict(l=50, r=50, t=50, b=50),
@@ -768,18 +753,7 @@ def update_chart(data, chart_info, chart_type, indicators):
                     ]
                 ),
                 width=3,
-            ),
-            dbc.Col(
-                dbc.Card(
-                    [
-                        dbc.CardHeader("Volume", className="text-center"),
-                        dbc.CardBody(
-                            [html.P(f"{stats['volume']:,.0f}", className="m-0")]
-                        ),
-                    ]
-                ),
-                width=3,
-            ),
+            )
         ]
 
         row2_cards = [

@@ -9,128 +9,13 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.neighbors import NearestNeighbors
 from sklearn.decomposition import PCA
 from scipy.spatial.distance import euclidean
-import pytz
 import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
-import alpaca_trade_api as tradeapi
-from alpaca_trade_api.rest import TimeFrame
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
-
-API_KEY = os.getenv("ALPACA_API_KEY")
-API_SECRET = os.getenv("ALPACA_API_SECRET")
-BASE_URL = "https://paper-api.alpaca.markets"
 
 # Database setup
 DB_PATH = "spx_data_all.db"
-
-
-# Function to fetch the latest data from Alpaca
-def fetch_latest_data():
-    """Fetch the latest SPY data from Alpaca API"""
-    try:
-        # Initialize the Alpaca API
-        api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version="v2")
-
-        # Get today's date
-        today = datetime.now().date()
-
-        # Calculate the last weekday
-        if today.weekday() == 0:  # Monday
-            last_weekday = today - timedelta(days=3)
-        elif today.weekday() == 6:  # Sunday
-            last_weekday = today - timedelta(days=2)
-        else:
-            last_weekday = today - timedelta(days=1)
-
-        # Format dates
-        start_date = last_weekday.strftime("%Y-%m-%d")
-        end_date = datetime.now().strftime("%Y-%m-%d")
-
-        # Fetch data (using SPY as a proxy for SPX)
-        symbol = "SPY"
-        bars = api.get_bars(symbol, TimeFrame.Minute, start=start_date).df
-
-        # Convert UTC time to Eastern Time (US market)
-        bars = bars.reset_index()
-        bars['timestamp'] = bars['timestamp'].dt.tz_convert('America/New_York')
-
-        # Reset index to get datetime as a column
-        bars = bars.reset_index()
-
-        # Format the dataframe to match our database schema
-        formatted_df = pd.DataFrame()
-        formatted_df["datetime"] = bars["timestamp"]
-        formatted_df["date"] = bars["timestamp"].dt.date.astype(str)
-        formatted_df["open"] = bars["open"]
-        formatted_df["high"] = bars["high"]
-        formatted_df["low"] = bars["low"]
-        formatted_df["close"] = bars["close"]
-        formatted_df["volume"] = bars["volume"]
-
-        formatted_df = filter_trading_hours(formatted_df)
-
-        return formatted_df
-
-    except Exception as e:
-        print(f"Error fetching data from Alpaca: {e}")
-        return None
-
-
-# Function to store latest data in database
-def store_latest_data(df):
-    """Store the latest data in the SQLite database"""
-    try:
-        conn = sqlite3.connect(DB_PATH)
-
-        # Check if the table exists
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='price_data'"
-        )
-        if not cursor.fetchone():
-            # Create the table if it doesn't exist
-            cursor.execute(
-                """
-            CREATE TABLE price_data (
-                datetime TEXT,
-                date TEXT,
-                open REAL,
-                high REAL,
-                low REAL,
-                close REAL,
-                volume INTEGER
-            )
-            """
-            )
-
-        # Get the latest date in the database
-        cursor.execute("SELECT MAX(date) FROM price_data")
-        latest_date = cursor.fetchone()[0]
-
-        # Filter data to only include new dates
-        if latest_date:
-            new_data = df[df["date"] > latest_date]
-        else:
-            new_data = df
-
-        # Store the data
-        if not new_data.empty:
-            new_data.to_sql("price_data", conn, if_exists="append", index=False)
-            print(f"Added {len(new_data)} new rows to the database")
-        else:
-            print("No new data to add to the database")
-
-        conn.close()
-        return True
-
-    except Exception as e:
-        print(f"Error storing data in database: {e}")
-        return False
 
 
 def get_dates(db_path):
@@ -141,30 +26,8 @@ def get_dates(db_path):
     conn.close()
     return dates["date"].tolist()
 
-def filter_trading_hours(df):
-    """Filter dataframe to only include regular trading hours (9:30 AM to 4:00 PM Eastern)"""
-    df = df.copy()
-    # Convert datetime to pandas datetime if it's not already
-    if not isinstance(df['datetime'].iloc[0], pd.Timestamp):
-        df['datetime'] = pd.to_datetime(df['datetime'])
-    
-    # Extract time part
-    df['time'] = df['datetime'].dt.time
-    
-    # Filter for regular trading hours (9:30 AM to 4:00 PM Eastern)
-    market_open = pd.to_datetime('09:30:00').time()
-    market_close = pd.to_datetime('16:00:00').time()
-    
-    filtered_df = df[(df['time'] >= market_open) & (df['time'] <= market_close)]
-    
-    # Drop the temporary time column
-    filtered_df = filtered_df.drop('time', axis=1)
-    
-    return filtered_df
 
-def find_similar_patterns_ml(
-    db_path, pattern_date, pattern_length=60, top_n=5, live_data=None
-):
+def find_similar_patterns_ml(db_path, pattern_date, pattern_length=60, top_n=5):
     """
     Find similar patterns using machine learning techniques
 
@@ -173,27 +36,20 @@ def find_similar_patterns_ml(
     2. Extracts the first hour for all other dates
     3. Normalizes the price patterns
     4. Uses nearest neighbors to find the most similar patterns
-
-    If live_data is provided, it will be used as a target pattern instead of querying the database
     """
     conn = sqlite3.connect(db_path)
 
-    # Handle pattern data - either from database or live data
-    if live_data is not None and not live_data.empty:
-        # Use live data as pattern
-        pattern_df = live_data.head(pattern_length)
-        pattern_date = "Today (Live)"
-    else:
-        # Get pattern data for the selected date from database
-        pattern_query = f"""
-        SELECT datetime, open, high, low, close
-        FROM price_data 
-        WHERE date = '{pattern_date}'
-        ORDER BY datetime
-        LIMIT {pattern_length}
-        """
-        pattern_df = pd.read_sql_query(pattern_query, conn)
-        pattern_df["datetime"] = pd.to_datetime(pattern_df["datetime"])
+    # Get pattern data for the selected date
+    pattern_query = f"""
+    SELECT datetime, open, high, low, close
+    FROM price_data 
+    WHERE date = '{pattern_date}'
+    ORDER BY datetime
+    LIMIT {pattern_length}
+    """
+
+    pattern_df = pd.read_sql_query(pattern_query, conn)
+    pattern_df["datetime"] = pd.to_datetime(pattern_df["datetime"])
 
     if len(pattern_df) < pattern_length:
         print(f"Warning: Found only {len(pattern_df)} data points for {pattern_date}")
@@ -313,12 +169,11 @@ def get_full_day_data(date, db_path):
 
 
 def create_comparison_charts(
-    pattern_date, similar_patterns, db_path, pattern_length=60, pattern_df_full=None
+    pattern_date, similar_patterns, db_path, pattern_length=60
 ):
     """Create a figure with multiple subplots comparing the pattern day with similar days"""
-    # Get full day data for pattern date (if not provided)
-    if pattern_df_full is None:
-        pattern_df_full = get_full_day_data(pattern_date, db_path)
+    # Get full day data for pattern date
+    pattern_df_full = get_full_day_data(pattern_date, db_path)
 
     # Calculate number of rows needed
     n_rows = len(similar_patterns) + 1  # +1 for the pattern day
@@ -451,12 +306,11 @@ def create_comparison_charts(
 
 
 def create_individual_normalized_charts(
-    pattern_date, similar_patterns, db_path, pattern_length=60, pattern_df_full=None
+    pattern_date, similar_patterns, db_path, pattern_length=60
 ):
     """Create individual normalized charts for each pattern day"""
-    # Get full day data for pattern date (if not provided)
-    if pattern_df_full is None:
-        pattern_df_full = get_full_day_data(pattern_date, db_path)
+    # Get full day data for pattern date
+    pattern_df_full = get_full_day_data(pattern_date, db_path)
 
     # Calculate number of rows needed
     n_rows = len(similar_patterns) + 1  # +1 for the pattern day
@@ -613,7 +467,7 @@ app.layout = dbc.Container(
                     [
                         html.H1("SPX Pattern Finder", className="text-center my-4"),
                         html.P(
-                            "Find similar trading days based on initial intraday price patterns",
+                            "Find similar trading days based on the first hour of trading",
                             className="text-center mb-4",
                         ),
                     ]
@@ -631,34 +485,7 @@ app.layout = dbc.Container(
                                     [
                                         dbc.Row(
                                             [
-                                                # Mode selector
-                                                dbc.Col(
-                                                    [
-                                                        html.Label("Mode:"),
-                                                        dcc.RadioItems(
-                                                            id="mode-selector",
-                                                            options=[
-                                                                {
-                                                                    "label": "Historical Date",
-                                                                    "value": "historical",
-                                                                },
-                                                                {
-                                                                    "label": "Live Data (Today)",
-                                                                    "value": "live",
-                                                                },
-                                                            ],
-                                                            value="historical",
-                                                            inline=True,
-                                                            className="mb-2",
-                                                        ),
-                                                    ],
-                                                    width=12,
-                                                ),
-                                            ]
-                                        ),
-                                        dbc.Row(
-                                            [
-                                                # Date selector (only shown in historical mode)
+                                                # Date selector
                                                 dbc.Col(
                                                     [
                                                         html.Label("Select Date:"),
@@ -678,7 +505,6 @@ app.layout = dbc.Container(
                                                         ),
                                                     ],
                                                     width=4,
-                                                    id="date-selector-col",
                                                 ),
                                                 # Pattern length
                                                 dbc.Col(
@@ -729,19 +555,6 @@ app.layout = dbc.Container(
                                                 dbc.Col(
                                                     [
                                                         dbc.Button(
-                                                            "Refresh Live Data",
-                                                            id="refresh-data-button",
-                                                            color="success",
-                                                            className="mt-4 w-100",
-                                                        )
-                                                    ],
-                                                    width={"size": 3, "offset": 0},
-                                                    id="refresh-button-col",
-                                                    style={"display": "none"},
-                                                ),
-                                                dbc.Col(
-                                                    [
-                                                        dbc.Button(
                                                             "Find Similar Patterns",
                                                             id="find-patterns-button",
                                                             color="primary",
@@ -749,8 +562,7 @@ app.layout = dbc.Container(
                                                         )
                                                     ],
                                                     width={"size": 6, "offset": 3},
-                                                    id="find-button-col",
-                                                ),
+                                                )
                                             ]
                                         ),
                                     ]
@@ -845,74 +657,30 @@ app.layout = dbc.Container(
 )
 
 
-# Callback to show/hide date selector based on mode
-@app.callback(
-    [
-        Output("date-selector-col", "style"),
-        Output("refresh-button-col", "style"),
-        Output("find-button-col", "width"),
-    ],
-    [Input("mode-selector", "value")],
-)
-def toggle_date_selector(mode):
-    if mode == "historical":
-        return ({"display": "block"}, {"display": "none"}, {"size": 6, "offset": 3})
-    else:  # live mode
-        return ({"display": "none"}, {"display": "block"}, {"size": 6, "offset": 0})
-
-
-# Callback to refresh live data
-@app.callback(
-    Output("status-message", "children", allow_duplicate=True),
-    [Input("refresh-data-button", "n_clicks")],
-    prevent_initial_call=True,
-)
-def refresh_live_data(n_clicks):
-    if not n_clicks:
-        return ""
-
-    try:
-        # Fetch latest data from Alpaca
-        latest_data = fetch_latest_data()
-
-        if latest_data is not None and not latest_data.empty:
-            # Store the data in the database
-            store_latest_data(latest_data)
-
-            return dbc.Alert(
-                f"Successfully refreshed data. Found {len(latest_data)} data points.",
-                color="success",
-            )
-        else:
-            return dbc.Alert(
-                "Failed to fetch live data from Alpaca. Check your API credentials and connection.",
-                color="danger",
-            )
-
-    except Exception as e:
-        return dbc.Alert(f"Error refreshing data: {str(e)}", color="danger")
-
-
 @app.callback(
     [
         Output("comparison-charts", "figure"),
-        Output("individual-normalized-charts", "figure"),
-        Output("status-message", "children", allow_duplicate=True),
+        Output("individual-normalized-charts", "figure"),  # Add this line
+        Output("status-message", "children"),
     ],
     [Input("find-patterns-button", "n_clicks")],
     [
-        State("mode-selector", "value"),
         State("date-dropdown", "value"),
         State("pattern-length-slider", "value"),
         State("num-matches-slider", "value"),
     ],
     prevent_initial_call=True,
 )
-def update_charts(n_clicks, mode, selected_date, pattern_length, top_n):
-    if not n_clicks:
+def update_charts(n_clicks, selected_date, pattern_length, top_n):
+    if not selected_date:
         empty_fig = go.Figure()
-        empty_fig.update_layout(title="Click 'Find Similar Patterns' to start")
-        return empty_fig, empty_fig, ""
+        empty_fig.update_layout(title="No date selected")
+        return (
+            empty_fig,
+            empty_fig,
+            empty_fig,
+            dbc.Alert("Please select a date", color="warning"),
+        )  # Add empty_fig
 
     # Status message
     status = dbc.Spinner(
@@ -921,70 +689,38 @@ def update_charts(n_clicks, mode, selected_date, pattern_length, top_n):
     )
 
     try:
+        # Find similar patterns using ML approach
+        similar_patterns, pattern_df = find_similar_patterns_ml(
+            DB_PATH, selected_date, pattern_length, top_n
+        )
+
         # Empty figure in case of errors
         empty_fig = go.Figure()
         empty_fig.update_layout(title="No data available")
-
-        # Handle mode selection
-        if mode == "historical":
-            if not selected_date:
-                return (
-                    empty_fig,
-                    empty_fig,
-                    dbc.Alert("Please select a date", color="warning"),
-                )
-
-            # Find similar patterns using historical data
-            similar_patterns, pattern_df = find_similar_patterns_ml(
-                DB_PATH, selected_date, pattern_length, top_n
-            )
-
-            pattern_date_display = selected_date
-
-        else:  # Live mode
-            # Fetch latest data from Alpaca
-            live_data = fetch_latest_data()
-
-            if live_data is None or live_data.empty:
-                return (
-                    empty_fig,
-                    empty_fig,
-                    dbc.Alert(
-                        "Failed to fetch live data from Alpaca. Check your API credentials and connection.",
-                        color="danger",
-                    ),
-                )
-
-            # Find similar patterns using live data
-            similar_patterns, pattern_df = find_similar_patterns_ml(
-                DB_PATH, None, pattern_length, top_n, live_data=live_data
-            )
-
-            pattern_date_display = "Today (Live)"
 
         if not similar_patterns or pattern_df is None:
             return (
                 empty_fig,
                 empty_fig,
+                empty_fig,  # Add empty_fig
                 dbc.Alert(
-                    f"No similar patterns found for {pattern_date_display}. Try increasing the pattern length or number of matches.",
-                    color="warning",
+                    f"No similar patterns found for {selected_date}", color="warning"
                 ),
             )
 
         # Create individual comparison charts
-        # In the live mode section, where you create the charts:
         comparison_fig = create_comparison_charts(
-            pattern_date_display, similar_patterns, DB_PATH, pattern_length, pattern_df_full=live_data
+            selected_date, similar_patterns, DB_PATH, pattern_length
         )
 
         # Create individual normalized charts
         normalized_fig = create_individual_normalized_charts(
-            pattern_date_display, similar_patterns, DB_PATH, pattern_length, pattern_df_full=live_data
+            selected_date, similar_patterns, DB_PATH, pattern_length
         )
+
         # Create success message with details
         success_message = dbc.Alert(
-            f"Found {len(similar_patterns)} similar patterns to {pattern_date_display} using a {pattern_length}-minute pattern window.",
+            f"Found {len(similar_patterns)} similar patterns to {selected_date} using a {pattern_length}-minute pattern window.",
             color="success",
         )
 
@@ -997,24 +733,11 @@ def update_charts(n_clicks, mode, selected_date, pattern_length, top_n):
         return (
             empty_fig,
             empty_fig,
+            empty_fig,  # Add empty_fig
             dbc.Alert(f"Error: {str(e)}", color="danger"),
         )
 
 
 # Run the app
 if __name__ == "__main__":
-    # Initial setup - make sure we have the latest data
-    try:
-        print("Fetching latest data from Alpaca...")
-        latest_data = fetch_latest_data()
-        if latest_data is not None and not latest_data.empty:
-            print(f"Found {len(latest_data)} new data points")
-            store_latest_data(latest_data)
-            print("Data stored successfully")
-        else:
-            print("No new data to store or failed to fetch data")
-    except Exception as e:
-        print(f"Error during initial data setup: {e}")
-
-    # Start the server
     app.run_server(debug=True)

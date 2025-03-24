@@ -12,6 +12,8 @@ from dash import dcc, html, Input, Output, State, callback_context
 import dash_bootstrap_components as dbc
 from dash_bootstrap_templates import load_figure_template
 
+from pattern_matching_ui import create_pattern_matching_tab, register_pattern_callbacks
+
 # Set the plotly template
 load_figure_template("bootstrap")
 
@@ -672,6 +674,10 @@ app.layout = dbc.Container(
                                                                     "label": "Month View",
                                                                     "value": "month",
                                                                 },
+                                                                {
+                                                                    "label": "Pattern Matching",
+                                                                    "value": "pattern",
+                                                                },
                                                             ],
                                                             value="day",
                                                             className="mb-3",
@@ -798,6 +804,15 @@ app.layout = dbc.Container(
                             color="primary",
                         )
                     ],
+                    width=12,
+                    className="my-3",
+                )
+            ]
+        ),
+        dbc.Row(
+            [
+                dbc.Col(
+                    [html.Div(id="tab-content")],
                     width=12,
                     className="my-3",
                 )
@@ -957,6 +972,9 @@ def update_data_for_view(selected_date, view_type):
     if selected_date is None:
         return {}, {}, []
 
+    # Initialize df as an empty DataFrame to avoid UnboundLocalError
+    df = pd.DataFrame()
+    
     selected_date = dt.datetime.strptime(selected_date.split("T")[0], "%Y-%m-%d").date()
 
     if view_type == "day":
@@ -986,6 +1004,10 @@ def update_data_for_view(selected_date, view_type):
 
         # Get annotations for the date range
         annotations = get_annotations_for_range(str(start_date), str(end_date))
+    elif view_type == "pattern":
+        # For pattern view, we don't need to load data here
+        # The pattern matching tab will handle its own data loading
+        return {}, {"title": "Pattern Matching", "view_type": "pattern"}, []
 
     # Convert DataFrame to dictionary for storage
     data_dict = df.to_dict("records") if not df.empty else {}
@@ -994,8 +1016,6 @@ def update_data_for_view(selected_date, view_type):
     chart_data = {"title": chart_title, "view_type": view_type}
 
     return data_dict, chart_data, annotations
-
-
 @app.callback(
     [Output("price-chart", "figure"), Output("stats-container", "children")],
     [
@@ -1642,6 +1662,18 @@ def populate_annotation_form(active_annotation):
         price_val,
     )
 
+
+@app.callback(
+    Output("tab-content", "children"),
+    [Input("view-selector", "value")],
+)
+def update_tab_content(view_type):
+    if view_type == "pattern":
+        return create_pattern_matching_tab()
+    return html.Div()  # Return empty div for other views
+
+
+register_pattern_callbacks(app, db_path="spx_data.db")
 
 if __name__ == "__main__":
     app.run_server(debug=True)

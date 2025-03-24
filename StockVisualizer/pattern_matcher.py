@@ -57,7 +57,7 @@ def fetch_latest_data():
 
         # Convert UTC time to Eastern Time (US market)
         bars = bars.reset_index()
-        bars['timestamp'] = bars['timestamp'].dt.tz_convert('America/New_York')
+        bars["timestamp"] = bars["timestamp"].dt.tz_convert("America/New_York")
 
         # Reset index to get datetime as a column
         bars = bars.reset_index()
@@ -141,26 +141,28 @@ def get_dates(db_path):
     conn.close()
     return dates["date"].tolist()
 
+
 def filter_trading_hours(df):
     """Filter dataframe to only include regular trading hours (9:30 AM to 4:00 PM Eastern)"""
     df = df.copy()
     # Convert datetime to pandas datetime if it's not already
-    if not isinstance(df['datetime'].iloc[0], pd.Timestamp):
-        df['datetime'] = pd.to_datetime(df['datetime'])
-    
+    if not isinstance(df["datetime"].iloc[0], pd.Timestamp):
+        df["datetime"] = pd.to_datetime(df["datetime"])
+
     # Extract time part
-    df['time'] = df['datetime'].dt.time
-    
+    df["time"] = df["datetime"].dt.time
+
     # Filter for regular trading hours (9:30 AM to 4:00 PM Eastern)
-    market_open = pd.to_datetime('09:30:00').time()
-    market_close = pd.to_datetime('16:00:00').time()
-    
-    filtered_df = df[(df['time'] >= market_open) & (df['time'] <= market_close)]
-    
+    market_open = pd.to_datetime("09:30:00").time()
+    market_close = pd.to_datetime("16:00:00").time()
+
+    filtered_df = df[(df["time"] >= market_open) & (df["time"] <= market_close)]
+
     # Drop the temporary time column
-    filtered_df = filtered_df.drop('time', axis=1)
-    
+    filtered_df = filtered_df.drop("time", axis=1)
+
     return filtered_df
+
 
 def find_similar_patterns_ml(
     db_path, pattern_date, pattern_length=60, top_n=5, live_data=None
@@ -611,7 +613,9 @@ app.layout = dbc.Container(
             [
                 dbc.Col(
                     [
-                        html.H1("SPX Historical Pattern Match", className="text-center my-4"),
+                        html.H1(
+                            "SPX Historical Pattern Match", className="text-center my-4"
+                        ),
                         html.P(
                             "Find similar trading days based on initial intraday price patterns",
                             className="text-center mb-4",
@@ -927,13 +931,13 @@ def update_charts(n_clicks, mode, selected_date, pattern_length, top_n):
                     empty_fig,
                     dbc.Alert("Please select a date", color="warning"),
                 )
-            
+
             # Find similar patterns using historical data
             similar_patterns, pattern_df = find_similar_patterns_ml(
                 DB_PATH, selected_date, pattern_length, top_n
             )
             pattern_date_display = selected_date
-            
+
             # Create charts with historical data
             if not similar_patterns or pattern_df is None:
                 return (
@@ -944,21 +948,29 @@ def update_charts(n_clicks, mode, selected_date, pattern_length, top_n):
                         color="warning",
                     ),
                 )
-                
+
             # Create individual comparison charts for historical mode
             comparison_fig = create_comparison_charts(
-                pattern_date_display, similar_patterns, DB_PATH, pattern_length, pattern_df
+                pattern_date_display,
+                similar_patterns,
+                DB_PATH,
+                pattern_length,
+                pattern_df,
             )
-            
+
             # Create individual normalized charts for historical mode
             normalized_fig = create_individual_normalized_charts(
-                pattern_date_display, similar_patterns, DB_PATH, pattern_length, pattern_df
+                pattern_date_display,
+                similar_patterns,
+                DB_PATH,
+                pattern_length,
+                pattern_df,
             )
-            
+
         else:  # Live mode
             # Fetch latest data from Alpaca
             live_data = fetch_latest_data()
-            
+
             if live_data is None or live_data.empty:
                 return (
                     empty_fig,
@@ -968,17 +980,17 @@ def update_charts(n_clicks, mode, selected_date, pattern_length, top_n):
                         color="danger",
                     ),
                 )
-            
+
             # Filter to trading hours if needed
             live_data = filter_trading_hours(live_data)
-            
+
             # Find similar patterns using live data
             similar_patterns, pattern_df = find_similar_patterns_ml(
                 DB_PATH, None, pattern_length, top_n, live_data=live_data
             )
-            
+
             pattern_date_display = "Today (Live)"
-            
+
             if not similar_patterns or pattern_df is None:
                 return (
                     empty_fig,
@@ -988,14 +1000,22 @@ def update_charts(n_clicks, mode, selected_date, pattern_length, top_n):
                         color="warning",
                     ),
                 )
-                
+
             # Create charts with live data
             comparison_fig = create_comparison_charts(
-                pattern_date_display, similar_patterns, DB_PATH, pattern_length, live_data
+                pattern_date_display,
+                similar_patterns,
+                DB_PATH,
+                pattern_length,
+                live_data,
             )
-            
+
             normalized_fig = create_individual_normalized_charts(
-                pattern_date_display, similar_patterns, DB_PATH, pattern_length, live_data
+                pattern_date_display,
+                similar_patterns,
+                DB_PATH,
+                pattern_length,
+                live_data,
             )
 
         # Create success message with details
@@ -1013,6 +1033,8 @@ def update_charts(n_clicks, mode, selected_date, pattern_length, top_n):
             empty_fig,
             dbc.Alert(f"Error: {str(e)}", color="danger"),
         )
+
+
 # Run the app
 if __name__ == "__main__":
     # Initial setup - make sure we have the latest data

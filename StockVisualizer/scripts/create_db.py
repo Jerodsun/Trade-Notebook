@@ -83,3 +83,8 @@ def create_database(directory_path, db_path="spx_data_all.db"):
 
     print(f"Database created successfully at {db_path}")
     return
+
+
+if __name__ == "__main__":
+    current_directory = os.getcwd()
+    create_database("data/", "spx_data_all_temp.db")

@@ -906,7 +906,7 @@ def initialize_data(n_clicks):
     db_path = "spx_data.db"
 
     # Create database
-    create_database(file_path, db_path)
+    # create_database(file_path, db_path)
 
     # Get available dates
     try:

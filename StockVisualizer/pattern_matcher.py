@@ -39,21 +39,30 @@ def fetch_latest_data():
         # Get today's date
         today = datetime.now().date()
 
-        # Calculate the last weekday
-        if today.weekday() == 0:  # Monday
-            last_weekday = today - timedelta(days=3)
-        elif today.weekday() == 6:  # Sunday
-            last_weekday = today - timedelta(days=2)
-        else:
-            last_weekday = today - timedelta(days=1)
-
-        # Format dates
-        start_date = last_weekday.strftime("%Y-%m-%d")
-        end_date = datetime.now().strftime("%Y-%m-%d")
+        # Format dates - use today for both start and end to ensure we get today's data
+        start_date = today.strftime("%Y-%m-%d")
+        end_date = today.strftime("%Y-%m-%d")
 
         # Fetch data (using SPY as a proxy for SPX)
         symbol = "SPY"
         bars = api.get_bars(symbol, TimeFrame.Minute, start=start_date).df
+
+        # If we didn't get any data for today, try getting yesterday's data
+        if bars.empty:
+            # Calculate the last weekday
+            if today.weekday() == 0:  # Monday
+                last_weekday = today - timedelta(days=3)
+            elif today.weekday() == 6:  # Sunday
+                last_weekday = today - timedelta(days=2)
+            else:
+                last_weekday = today - timedelta(days=1)
+
+            start_date = last_weekday.strftime("%Y-%m-%d")
+            bars = api.get_bars(symbol, TimeFrame.Minute, start=start_date).df
+
+            if bars.empty:
+                print(f"No data available for {start_date} or {today}")
+                return None
 
         # Convert UTC time to Eastern Time (US market)
         bars = bars.reset_index()
@@ -976,27 +985,37 @@ def update_charts(n_clicks, mode, selected_date, pattern_length, top_n):
                     empty_fig,
                     empty_fig,
                     dbc.Alert(
-                        "Failed to fetch live data from Alpaca",
+                        "Failed to fetch live data from Alpaca. Check your API credentials or try again later.",
                         color="danger",
                     ),
                 )
 
+            # Add debugging info
+            print(f"Live data retrieved: {len(live_data)} points")
+            print(f"First few rows of live data:\n{live_data.head()}")
+            print(f"Date range in live data: {live_data['date'].min()} to {live_data['date'].max()}")
+
             # Filter to trading hours if needed
             live_data = filter_trading_hours(live_data)
+            
+            # Make sure we store this data in the database
+            store_latest_data(live_data)
 
             # Find similar patterns using live data
             similar_patterns, pattern_df = find_similar_patterns_ml(
                 DB_PATH, None, pattern_length, top_n, live_data=live_data
             )
 
-            pattern_date_display = "Today (Live)"
+            # Use today's actual date for display
+            today_date = datetime.now().date().strftime("%Y-%m-%d")
+            pattern_date_display = f"Today ({today_date})"
 
             if not similar_patterns or pattern_df is None:
                 return (
                     empty_fig,
                     empty_fig,
                     dbc.Alert(
-                        f"No similar patterns found for {pattern_date_display}",
+                        f"No similar patterns found for {pattern_date_display}. You may need to wait for more data points today.",
                         color="warning",
                     ),
                 )
@@ -1027,7 +1046,9 @@ def update_charts(n_clicks, mode, selected_date, pattern_length, top_n):
         return comparison_fig, normalized_fig, success_message
 
     except Exception as e:
+        import traceback
         print(f"Error finding pattern matches: {e}")
+        print(traceback.format_exc())
         return (
             empty_fig,
             empty_fig,

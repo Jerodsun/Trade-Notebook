@@ -611,7 +611,7 @@ app.layout = dbc.Container(
             [
                 dbc.Col(
                     [
-                        html.H1("SPX Pattern Finder", className="text-center my-4"),
+                        html.H1("SPX Historical Pattern Match", className="text-center my-4"),
                         html.P(
                             "Find similar trading days based on initial intraday price patterns",
                             className="text-center mb-4",
@@ -914,17 +914,11 @@ def update_charts(n_clicks, mode, selected_date, pattern_length, top_n):
         empty_fig.update_layout(title="Click 'Find Similar Patterns' to start")
         return empty_fig, empty_fig, ""
 
-    # Status message
-    status = dbc.Spinner(
-        spinner_style={"width": "1rem", "height": "1rem"},
-        children=[html.Span("Finding similar patterns...")],
-    )
+    # Empty figure in case of errors
+    empty_fig = go.Figure()
+    empty_fig.update_layout(title="No data available")
 
     try:
-        # Empty figure in case of errors
-        empty_fig = go.Figure()
-        empty_fig.update_layout(title="No data available")
-
         # Handle mode selection
         if mode == "historical":
             if not selected_date:
@@ -933,55 +927,77 @@ def update_charts(n_clicks, mode, selected_date, pattern_length, top_n):
                     empty_fig,
                     dbc.Alert("Please select a date", color="warning"),
                 )
-
+            
             # Find similar patterns using historical data
             similar_patterns, pattern_df = find_similar_patterns_ml(
                 DB_PATH, selected_date, pattern_length, top_n
             )
-
             pattern_date_display = selected_date
-
+            
+            # Create charts with historical data
+            if not similar_patterns or pattern_df is None:
+                return (
+                    empty_fig,
+                    empty_fig,
+                    dbc.Alert(
+                        f"No similar patterns found for {pattern_date_display}",
+                        color="warning",
+                    ),
+                )
+                
+            # Create individual comparison charts for historical mode
+            comparison_fig = create_comparison_charts(
+                pattern_date_display, similar_patterns, DB_PATH, pattern_length, pattern_df
+            )
+            
+            # Create individual normalized charts for historical mode
+            normalized_fig = create_individual_normalized_charts(
+                pattern_date_display, similar_patterns, DB_PATH, pattern_length, pattern_df
+            )
+            
         else:  # Live mode
             # Fetch latest data from Alpaca
             live_data = fetch_latest_data()
-
+            
             if live_data is None or live_data.empty:
                 return (
                     empty_fig,
                     empty_fig,
                     dbc.Alert(
-                        "Failed to fetch live data from Alpaca. Check your API credentials and connection.",
+                        "Failed to fetch live data from Alpaca",
                         color="danger",
                     ),
                 )
-
+            
+            # Filter to trading hours if needed
+            live_data = filter_trading_hours(live_data)
+            
             # Find similar patterns using live data
             similar_patterns, pattern_df = find_similar_patterns_ml(
                 DB_PATH, None, pattern_length, top_n, live_data=live_data
             )
-
+            
             pattern_date_display = "Today (Live)"
-
-        if not similar_patterns or pattern_df is None:
-            return (
-                empty_fig,
-                empty_fig,
-                dbc.Alert(
-                    f"No similar patterns found for {pattern_date_display}. Try increasing the pattern length or number of matches.",
-                    color="warning",
-                ),
+            
+            if not similar_patterns or pattern_df is None:
+                return (
+                    empty_fig,
+                    empty_fig,
+                    dbc.Alert(
+                        f"No similar patterns found for {pattern_date_display}",
+                        color="warning",
+                    ),
+                )
+                
+            # Create charts with live data
+            comparison_fig = create_comparison_charts(
+                pattern_date_display, similar_patterns, DB_PATH, pattern_length, live_data
+            )
+            
+            normalized_fig = create_individual_normalized_charts(
+                pattern_date_display, similar_patterns, DB_PATH, pattern_length, live_data
             )
 
-        # Create individual comparison charts
-        # In the live mode section, where you create the charts:
-        comparison_fig = create_comparison_charts(
-            pattern_date_display, similar_patterns, DB_PATH, pattern_length, pattern_df_full=live_data
-        )
-
-        # Create individual normalized charts
-        normalized_fig = create_individual_normalized_charts(
-            pattern_date_display, similar_patterns, DB_PATH, pattern_length, pattern_df_full=live_data
-        )
         # Create success message with details
         success_message = dbc.Alert(
             f"Found {len(similar_patterns)} similar patterns to {pattern_date_display} using a {pattern_length}-minute pattern window.",
@@ -992,15 +1008,11 @@ def update_charts(n_clicks, mode, selected_date, pattern_length, top_n):
 
     except Exception as e:
         print(f"Error finding pattern matches: {e}")
-        empty_fig = go.Figure()
-        empty_fig.update_layout(title=f"Error: {str(e)}")
         return (
             empty_fig,
             empty_fig,
             dbc.Alert(f"Error: {str(e)}", color="danger"),
         )
-
-
 # Run the app
 if __name__ == "__main__":
     # Initial setup - make sure we have the latest data

@@ -717,7 +717,7 @@ app.layout = dbc.Container(
                                                             min=3,
                                                             max=10,
                                                             step=1,
-                                                            value=3,
+                                                            value=5,
                                                             marks={
                                                                 i: str(i)
                                                                 for i in range(3, 11, 1)

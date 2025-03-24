@@ -15,7 +15,7 @@ from dash.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 
 # Database setup
-DB_PATH = "spx_data.db"
+DB_PATH = "spx_data_all.db"
 
 
 def get_dates(db_path):

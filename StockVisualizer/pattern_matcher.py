@@ -559,7 +559,7 @@ app.layout = dbc.Container([
             )
         ], width=12)
     ], className="mb-4"),
-    
+], fluid=True)
 
 @app.callback(
     [

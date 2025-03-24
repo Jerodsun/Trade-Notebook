@@ -5,7 +5,7 @@ import datetime as dt
 
 
 # Database connection functions
-def create_database(directory_path, db_path="spx_data.db"):
+def create_database(directory_path, db_path="spx_data_all.db"):
     """Create SQLite database from all CSV files in the directory with SPX data"""
 
     all_data = []

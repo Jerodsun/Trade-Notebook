@@ -171,8 +171,8 @@ def create_comparison_charts(pattern_date, similar_patterns, db_path, pattern_le
     fig = make_subplots(
         rows=n_rows, 
         cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.03,
+        shared_xaxes=False,  # Changed to False to allow individual x-axis zooming
+        vertical_spacing=0.05,  # Increased spacing for better separation
         subplot_titles=[f"Pattern Day: {pattern_date}"] + 
                       [f"Match {i+1}: {date} (Similarity: {similarity:.4f})" 
                        for i, (date, similarity, _) in enumerate(similar_patterns)]
@@ -192,6 +192,11 @@ def create_comparison_charts(pattern_date, similar_patterns, db_path, pattern_le
         row=1, 
         col=1
     )
+    
+    # Set y-axis range for pattern day based on its own data
+    pattern_min = pattern_df_full["low"].min() * 0.999  # Add small buffer
+    pattern_max = pattern_df_full["high"].max() * 1.001
+    fig.update_yaxes(range=[pattern_min, pattern_max], row=1, col=1)
     
     # Add vertical line at the pattern length mark
     if len(pattern_df_full) > pattern_length:
@@ -235,6 +240,11 @@ def create_comparison_charts(pattern_date, similar_patterns, db_path, pattern_le
             col=1
         )
         
+        # Set y-axis range for this similar day based on its own data
+        similar_min = similar_df_full["low"].min() * 0.999  # Add small buffer
+        similar_max = similar_df_full["high"].max() * 1.001
+        fig.update_yaxes(range=[similar_min, similar_max], row=i+2, col=1)
+        
         # Add vertical line at the pattern length mark
         if len(similar_df_full) > pattern_length:
             cutoff_time = similar_df_full.iloc[pattern_length-1]["datetime"]
@@ -245,65 +255,107 @@ def create_comparison_charts(pattern_date, similar_patterns, db_path, pattern_le
                 row=i+2,
                 col=1
             )
+            
+            # Add annotation
+            fig.add_annotation(
+                x=cutoff_time,
+                y=similar_df_full["high"].max(),
+                text="Pattern End",
+                showarrow=True,
+                arrowhead=1,
+                row=i+2,
+                col=1
+            )
     
     # Update layout
     fig.update_layout(
-        height=250 * n_rows,  # Adjust height based on number of rows
+        height=300 * n_rows,  # Increased height per row for better visibility
         title=f"Comparison of {pattern_date} with Most Similar Trading Days (First {pattern_length} minutes)",
-        xaxis_rangeslider_visible=False,
         template="plotly_white"
     )
     
-    # Update y-axis titles
+    # Update y-axis titles and make each chart independently zoomable
     for i in range(1, n_rows + 1):
-        fig.update_yaxes(title_text="Price", row=i, col=1)
-    
-    # Update x-axis titles
-    fig.update_xaxes(title_text="Time", row=n_rows, col=1)
-    
-    # Disable rangesliders on all subplots
-    for i in range(1, n_rows + 1):
-        fig.update_xaxes(rangeslider_visible=False, row=i, col=1)
+        fig.update_yaxes(
+            title_text="Price", 
+            row=i, 
+            col=1,
+            autorange=False  # Disable autorange to keep our custom scaling
+        )
+        
+        # Make each x-axis independently zoomable
+        fig.update_xaxes(
+            title_text="Time" if i == n_rows else "",
+            row=i, 
+            col=1,
+            rangeslider_visible=False,  # Disable rangeslider
+            autorange=True  # Allow zooming on x-axis
+        )
     
     return fig
 
-def create_normalized_overlay_chart(pattern_date, similar_patterns, db_path, pattern_length=60):
-    """Create a chart showing normalized price movements for easy comparison"""
-    # Get the pattern data
-    pattern_df = get_full_day_data(pattern_date, db_path)
+def create_individual_normalized_charts(pattern_date, similar_patterns, db_path, pattern_length=60):
+    """Create individual normalized charts for each pattern day"""
+    # Get full day data for pattern date
+    pattern_df_full = get_full_day_data(pattern_date, db_path)
     
-    # Create figure
-    fig = go.Figure()
+    # Calculate number of rows needed
+    n_rows = len(similar_patterns) + 1  # +1 for the pattern day
     
-    # Normalize and add pattern day
-    pattern_close_first = pattern_df.iloc[0]["close"]
-    pattern_df["normalized"] = (pattern_df["close"] / pattern_close_first) * 100
-    
-    fig.add_trace(
-        go.Scatter(
-            x=pattern_df["datetime"],
-            y=pattern_df["normalized"],
-            mode="lines",
-            name=f"Pattern Day: {pattern_date}",
-            line=dict(color="black", width=3)
-        )
+    # Create subplots
+    fig = make_subplots(
+        rows=n_rows, 
+        cols=1,
+        shared_xaxes=False,  # Allow individual x-axis zooming
+        vertical_spacing=0.05,
+        subplot_titles=[f"Pattern Day: {pattern_date} (Normalized)"] + 
+                      [f"Match {i+1}: {date} (Normalized, Similarity: {similarity:.4f})" 
+                       for i, (date, similarity, _) in enumerate(similar_patterns)]
     )
     
-    # Add vertical line at pattern length
-    if len(pattern_df) > pattern_length:
-        cutoff_time = pattern_df.iloc[pattern_length-1]["datetime"]
+    # Normalize and add pattern day
+    pattern_close_first = pattern_df_full.iloc[0]["close"]
+    pattern_df_full["normalized"] = (pattern_df_full["close"] / pattern_close_first) * 100
+    
+    # Add pattern day trace
+    fig.add_trace(
+        go.Scatter(
+            x=pattern_df_full["datetime"],
+            y=pattern_df_full["normalized"],
+            mode="lines",
+            name=f"Pattern Day: {pattern_date}",
+            line=dict(color="black", width=2),
+            showlegend=False
+        ),
+        row=1, 
+        col=1
+    )
+    
+    # Set y-axis range with buffer
+    y_min = pattern_df_full["normalized"].min() * 0.999
+    y_max = pattern_df_full["normalized"].max() * 1.001
+    fig.update_yaxes(range=[y_min, y_max], row=1, col=1)
+    
+    # Add vertical line at pattern length mark
+    if len(pattern_df_full) > pattern_length:
+        cutoff_time = pattern_df_full.iloc[pattern_length-1]["datetime"]
         
         fig.add_vline(
             x=cutoff_time,
-            line=dict(color="red", width=1, dash="dash")
+            line=dict(color="red", width=1, dash="dash"),
+            row=1,
+            col=1
         )
         
+        # Add annotation
         fig.add_annotation(
             x=cutoff_time,
-            y=pattern_df["normalized"].max() + 1,
+            y=pattern_df_full["normalized"].max(),
             text="Pattern End",
             showarrow=True,
-            arrowhead=1
+            arrowhead=1,
+            row=1,
+            col=1
         )
     
     # Add similar days
@@ -313,35 +365,80 @@ def create_normalized_overlay_chart(pattern_date, similar_patterns, db_path, pat
         color = colors[i % len(colors)]
         
         # Get full day data
-        similar_df = get_full_day_data(date, db_path)
+        similar_df_full = get_full_day_data(date, db_path)
         
         # Normalize
-        similar_close_first = similar_df.iloc[0]["close"]
-        similar_df["normalized"] = (similar_df["close"] / similar_close_first) * 100
+        similar_close_first = similar_df_full.iloc[0]["close"]
+        similar_df_full["normalized"] = (similar_df_full["close"] / similar_close_first) * 100
         
-        # Add to chart
+        # Add trace
         fig.add_trace(
             go.Scatter(
-                x=similar_df["datetime"],
-                y=similar_df["normalized"],
+                x=similar_df_full["datetime"],
+                y=similar_df_full["normalized"],
                 mode="lines",
-                name=f"Match {i+1}: {date} ({similarity:.4f})",
-                line=dict(color=color, width=2)
-            )
+                name=f"Match {i+1}: {date}",
+                line=dict(color=color, width=2),
+                showlegend=False
+            ),
+            row=i+2,
+            col=1
         )
+        
+        # Set y-axis range with buffer
+        y_min = similar_df_full["normalized"].min() * 0.999
+        y_max = similar_df_full["normalized"].max() * 1.001
+        fig.update_yaxes(range=[y_min, y_max], row=i+2, col=1)
+        
+        # Add vertical line at pattern length mark
+        if len(similar_df_full) > pattern_length:
+            cutoff_time = similar_df_full.iloc[pattern_length-1]["datetime"]
+            
+            fig.add_vline(
+                x=cutoff_time,
+                line=dict(color="red", width=1, dash="dash"),
+                row=i+2,
+                col=1
+            )
+            
+            # Add annotation
+            fig.add_annotation(
+                x=cutoff_time,
+                y=similar_df_full["normalized"].max(),
+                text="Pattern End",
+                showarrow=True,
+                arrowhead=1,
+                row=i+2,
+                col=1
+            )
     
     # Update layout
     fig.update_layout(
-        title="Normalized Price Comparison (Base 100)",
-        xaxis_title="Time",
-        yaxis_title="Normalized Price (Base 100)",
-        template="plotly_white",
-        height=600,
-        hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        height=300 * n_rows,
+        title="Individual Normalized Price Comparisons (Base 100)",
+        template="plotly_white"
     )
     
+    # Update y-axis titles and make each chart independently zoomable
+    for i in range(1, n_rows + 1):
+        fig.update_yaxes(
+            title_text="Price (Base 100)", 
+            row=i, 
+            col=1,
+            autorange=False
+        )
+        
+        # Make each x-axis independently zoomable
+        fig.update_xaxes(
+            title_text="Time" if i == n_rows else "",
+            row=i, 
+            col=1,
+            rangeslider_visible=False,
+            autorange=True
+        )
+    
     return fig
+
 
 # Initialize the Dash app
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
@@ -413,36 +510,62 @@ app.layout = dbc.Container([
         ])
     ], className="mb-4"),
     
-    # Normalized overlay chart
+    # Status and info message
     dbc.Row([
         dbc.Col([
-            html.H4("Normalized Price Comparison", className="text-center my-3"),
+            html.Div(id="status-message", className="text-center")
+        ], width=12)
+    ], className="mb-2"),
+    
+    dbc.Row([
+        dbc.Col([
+            html.H4("Individual Normalized Charts", className="text-center my-3"),
+            html.P("Each chart shows normalized prices (Base 100) for better trend comparison.", 
+                className="text-center text-muted"),
             dbc.Spinner(
-                dcc.Graph(id="normalized-overlay-chart", style={"height": "600px"}),
+                dcc.Graph(
+                    id="individual-normalized-charts", 
+                    style={"height": "auto"},
+                    config={
+                        'displayModeBar': True,
+                        'scrollZoom': True,
+                        'modeBarButtonsToAdd': ['drawline', 'drawopenpath', 'eraseshape']
+                    }
+                ),
+                color="primary",
+                type="border"
+            )
+        ], width=12)
+    ], className="mb-4"),
+
+    # Individual comparison charts
+    dbc.Row([
+        dbc.Col([
+            html.H4("Individual Daily Charts", className="text-center my-3"),
+            html.P("Each chart is independently zoomable. Use the zoom tools to examine specific areas of interest.", 
+                   className="text-center text-muted"),
+            dbc.Spinner(
+                dcc.Graph(
+                    id="comparison-charts", 
+                    style={"height": "auto"},
+                    config={
+                        'displayModeBar': True,
+                        'scrollZoom': True,
+                        'modeBarButtonsToAdd': ['drawline', 'drawopenpath', 'eraseshape']
+                    }
+                ),
                 color="primary",
                 type="border"
             )
         ], width=12)
     ], className="mb-4"),
     
-    # Individual comparison charts
-    dbc.Row([
-        dbc.Col([
-            html.H4("Individual Daily Charts", className="text-center my-3"),
-            dbc.Spinner(
-                dcc.Graph(id="comparison-charts", style={"height": "auto"}),
-                color="primary",
-                type="border"
-            )
-        ], width=12)
-    ], className="mb-4"),
-], fluid=True)
 
-# Callback to find pattern matches
 @app.callback(
     [
-        Output("normalized-overlay-chart", "figure"),
-        Output("comparison-charts", "figure")
+        Output("comparison-charts", "figure"),
+        Output("individual-normalized-charts", "figure"),  # Add this line
+        Output("status-message", "children")
     ],
     [Input("find-patterns-button", "n_clicks")],
     [
@@ -456,7 +579,11 @@ def update_charts(n_clicks, selected_date, pattern_length, top_n):
     if not selected_date:
         empty_fig = go.Figure()
         empty_fig.update_layout(title="No date selected")
-        return empty_fig, empty_fig
+        return empty_fig, empty_fig, empty_fig, dbc.Alert("Please select a date", color="warning")  # Add empty_fig
+    
+    # Status message
+    status = dbc.Spinner(spinner_style={"width": "1rem", "height": "1rem"}, 
+                        children=[html.Span("Finding similar patterns...")])
     
     try:
         # Find similar patterns using ML approach
@@ -469,25 +596,41 @@ def update_charts(n_clicks, selected_date, pattern_length, top_n):
         empty_fig.update_layout(title="No data available")
         
         if not similar_patterns or pattern_df is None:
-            return empty_fig, empty_fig
-        
-        # Create normalized overlay chart
-        overlay_fig = create_normalized_overlay_chart(
-            selected_date, similar_patterns, DB_PATH, pattern_length
-        )
+            return (
+                empty_fig, 
+                empty_fig,
+                empty_fig,  # Add empty_fig
+                dbc.Alert(f"No similar patterns found for {selected_date}", color="warning")
+            )
         
         # Create individual comparison charts
         comparison_fig = create_comparison_charts(
             selected_date, similar_patterns, DB_PATH, pattern_length
         )
         
-        return overlay_fig, comparison_fig
+        # Create individual normalized charts
+        normalized_fig = create_individual_normalized_charts(
+            selected_date, similar_patterns, DB_PATH, pattern_length
+        )
+        
+        # Create success message with details
+        success_message = dbc.Alert(
+            f"Found {len(similar_patterns)} similar patterns to {selected_date} using a {pattern_length}-minute pattern window.", 
+            color="success"
+        )
+        
+        return comparison_fig, normalized_fig, success_message
         
     except Exception as e:
         print(f"Error finding pattern matches: {e}")
         empty_fig = go.Figure()
         empty_fig.update_layout(title=f"Error: {str(e)}")
-        return empty_fig, empty_fig
+        return (
+            empty_fig, 
+            empty_fig,
+            empty_fig,  # Add empty_fig
+            dbc.Alert(f"Error: {str(e)}", color="danger")
+        )
 
 # Run the app
 if __name__ == "__main__":

@@ -1038,17 +1038,17 @@ def update_charts(n_clicks, mode, selected_date, pattern_length, top_n):
 # Run the app
 if __name__ == "__main__":
     # Initial setup - make sure we have the latest data
-    try:
-        print("Fetching latest data from Alpaca...")
-        latest_data = fetch_latest_data()
-        if latest_data is not None and not latest_data.empty:
-            print(f"Found {len(latest_data)} new data points")
-            store_latest_data(latest_data)
-            print("Data stored successfully")
-        else:
-            print("No new data to store or failed to fetch data")
-    except Exception as e:
-        print(f"Error during initial data setup: {e}")
+    # try:
+    #     print("Fetching latest data from Alpaca...")
+    #     latest_data = fetch_latest_data()
+    #     if latest_data is not None and not latest_data.empty:
+    #         print(f"Found {len(latest_data)} new data points")
+    #         store_latest_data(latest_data)
+    #         print("Data stored successfully")
+    #     else:
+    #         print("No new data to store or failed to fetch data")
+    # except Exception as e:
+    #     print(f"Error during initial data setup: {e}")
 
     # Start the server
     app.run_server(debug=True)

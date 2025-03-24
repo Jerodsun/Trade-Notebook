@@ -1,23 +1,36 @@
+import os
+import pandas as pd
+import sqlite3
+import datetime as dt
+
 
 # Database connection functions
-def create_database(file_path, db_path="spx_data.db"):
-    """Create SQLite database from the Excel file with SPX data"""
+def create_database(directory_path, db_path="spx_data.db"):
+    """Create SQLite database from all CSV files in the directory with SPX data"""
 
-    if os.path.exists(db_path):
-        # Create annotations table even if the database already exists
-        create_annotations_table(db_path)
+    all_data = []
+
+    # Iterate through all files in the directory
+    for file_name in os.listdir(directory_path):
+        file_path = os.path.join(directory_path, file_name)
+        if file_name.endswith(".csv"):
+            try:
+                df = pd.read_csv(file_path, header=None)
+                if ";" in df.iloc[0, 0]:  # Check if first cell contains semicolons
+                    split_data = df[0].str.split(";", expand=True)
+                    df = split_data
+                    df.columns = ["datetime", "open", "high", "low", "close", "volume"]
+                all_data.append(df)
+            except Exception as csv_error:
+                print(f"Error reading {file_path} as CSV: {csv_error}")
+                continue
+
+    if not all_data:
+        print("No CSV files found or all files failed to read.")
         return
 
-    # Try reading as CSV
-    try:
-        df = pd.read_csv(file_path, header=None)
-        if ";" in df.iloc[0, 0]:  # Check if first cell contains semicolons
-            split_data = df[0].str.split(";", expand=True)
-            df = split_data
-            df.columns = ["datetime", "open", "high", "low", "close", "volume"]
-    except Exception as csv_error:
-        print(f"Error reading as CSV: {csv_error}")
-        return
+    # Concatenate all dataframes
+    df = pd.concat(all_data, ignore_index=True)
 
     # Process datetime column
     try:
@@ -68,9 +81,5 @@ def create_database(file_path, db_path="spx_data.db"):
     conn.commit()
     conn.close()
 
-    # Create annotations table
-    create_annotations_table(db_path)
-
     print(f"Database created successfully at {db_path}")
     return
-

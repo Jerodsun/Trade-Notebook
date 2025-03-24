@@ -50,6 +50,7 @@ def find_similar_patterns(
     """
 
     pattern_df = pd.read_sql_query(pattern_query, conn)
+    pattern_df["datetime"] = pd.to_datetime(pattern_df["datetime"])
 
     if len(pattern_df) < pattern_length:
         print(
@@ -92,6 +93,8 @@ def find_similar_patterns(
         if len(date_df) < pattern_length:
             continue
 
+        date_df["datetime"] = pd.to_datetime(date_df["datetime"])
+
         # Extract and normalize the comparison window
         comp_values = date_df["close"].values
         comp_normalized = scaler.fit_transform(comp_values.reshape(-1, 1)).flatten()
@@ -103,15 +106,15 @@ def find_similar_patterns(
             try:
                 from fastdtw import fastdtw
 
-                distance, _ = fastdtw(
-                    pattern_normalized, comp_normalized, dist=euclidean
-                )
+                pattern_normalized = pattern_normalized.flatten()
+                comp_normalized = comp_normalized.flatten()
+                distance, _ = fastdtw(pattern_normalized, comp_normalized)
                 similarity = 1 / (1 + distance)
             except ImportError:
                 # Fall back to Euclidean if fastdtw is not installed
                 distance = euclidean(pattern_normalized, comp_normalized)
                 similarity = 1 / (1 + distance)
-        elif method == "euclidean":
+        if method == "euclidean":
             distance = euclidean(pattern_normalized, comp_normalized)
             similarity = 1 / (1 + distance)
         elif method == "correlation":
@@ -173,7 +176,7 @@ def create_pattern_comparison_figure(
             high=pattern_df["high"],
             low=pattern_df["low"],
             close=pattern_df["close"],
-            name=f"Original ({pattern_df['datetime'].min().date()})",
+            name=f"Original Pattern",
             showlegend=True,
         ),
         row=1,
@@ -305,6 +308,7 @@ def analyze_pattern_outcomes(db_path, similar_patterns, hours_forward=6):
 
         if len(subsequent_df) == 0:
             continue
+        subsequent_df["datetime"] = pd.to_datetime(subsequent_df["datetime"])
 
         # Get the pattern's last close price
         pattern_close = pattern_df["close"].iloc[-1]
@@ -429,6 +433,7 @@ def create_outcome_figure(pattern_df, similar_patterns, db_path, hours_forward=6
 
         if len(subsequent_df) == 0:
             continue
+        subsequent_df["datetime"] = pd.to_datetime(subsequent_df["datetime"])
 
         # Get the pattern's last close price
         similar_close = similar_df["close"].iloc[-1]

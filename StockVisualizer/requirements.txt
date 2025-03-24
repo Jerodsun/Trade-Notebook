@@ -5,3 +5,6 @@ pandas
 numpy
 plotly
 histdata
+scipy
+scikit-learn
+fastdtw

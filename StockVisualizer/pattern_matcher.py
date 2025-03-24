@@ -537,12 +537,12 @@ app.layout = dbc.Container(
                                                         dcc.Slider(
                                                             id="num-matches-slider",
                                                             min=3,
-                                                            max=5,
+                                                            max=10,
                                                             step=1,
                                                             value=3,
                                                             marks={
                                                                 i: str(i)
-                                                                for i in range(3, 6, 1)
+                                                                for i in range(3, 11, 1)
                                                             },
                                                         ),
                                                     ],

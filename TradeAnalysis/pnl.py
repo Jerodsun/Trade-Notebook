@@ -70,7 +70,6 @@ app.layout = html.Div(
                     options=[
                         {"label": "Hourly", "value": "hourly"},
                         {"label": "Daily", "value": "daily"},
-                        {"label": "Raw Data", "value": "raw"},
                     ],
                     value="hourly",
                     labelStyle={"display": "inline-block", "margin-right": "20px"},
@@ -196,14 +195,11 @@ def load_spx_data(db_path, start_date=None, end_date=None, aggregation="hourly")
         df["hour"] = df["datetime"].dt.floor("H")
         aggregated = df.groupby("hour").agg({"open": "first"}).reset_index()
         return aggregated.rename(columns={"hour": "datetime"})
-    elif aggregation == "daily":
+    else: # elif aggregation == "daily":
         # Group by day and aggregate - only using open price
         df["day"] = df["datetime"].dt.floor("D")
         aggregated = df.groupby("day").agg({"open": "first"}).reset_index()
         return aggregated.rename(columns={"day": "datetime"})
-    else:
-        # Return raw data
-        return df
 
 
 def generate_trade_markers(df, selected_trade_types, include_options):
@@ -388,7 +384,6 @@ def update_graph(timeframe, selected_trade_types, show_spx, spx_aggregation):
     cover_trades = len(df[df["trade_type"] == "cover"])
     option_trades = len(df[df["is_option"]])
     trading_days = len(df["Run Date"].dt.date.unique())
-    avg_trades_per_day = total_trades / trading_days if trading_days > 0 else 0
 
     # Net P&L for the period
     net_pl = df["Amount ($)"].sum()

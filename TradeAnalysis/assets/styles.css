@@ -1,0 +1,241 @@
+/* Main Colors */
+:root {
+    --primary-color: #1a202c; /* Dark Gray */
+    --secondary-color: #2b6cb0; /* Blue */
+    --accent-color: #e53e3e; /* Red */
+    --light-bg: #ffffff; /* Light Gray */
+    --dark-text: #1a202c; /* Dark Gray */
+    --light-text: #edf2f7; /* Very Light Gray */
+    --success-color: #38a169; /* Green */
+    --warning-color: #dd6b20; /* Orange */
+    --danger-color: #e53e3e; /* Red */
+    --border-color: #e2e8f0; /* Light Border Gray */
+}
+
+/* Global Styles */
+body {
+    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    background-color: var(--light-bg);
+    color: var(--dark-text);
+    margin: 0;
+    padding: 0;
+    line-height: 1.6;
+}
+
+/* Main Container */
+#root {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* Header Styles */
+h1, h2, h3, h4 {
+    font-weight: 600;
+    margin-bottom: 1rem;
+    color: var(--primary-color);
+}
+
+h1 {
+    font-size: 2.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--secondary-color);
+    text-align: center;
+    margin-top: 0;
+    letter-spacing: 0.5px;
+}
+
+h2 {
+    font-size: 1.8rem;
+    padding-bottom: 0.3rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+h3 {
+    font-size: 1.4rem;
+    color: var(--secondary-color);
+}
+
+/* Control Panels */
+.control-panel {
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    padding: 20px;
+    margin-bottom: 25px;
+}
+
+/* Control Items */
+.control-item {
+    margin-bottom: 15px;
+}
+
+.control-item label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--primary-color);
+}
+
+/* Dashboard Controls */
+.dash-radio-items label, 
+.dash-checklist label {
+    display: inline-flex;
+    align-items: center;
+    background-color: white;
+    border: 1px solid var(--border-color);
+    padding: 8px 16px;
+    margin-right: 10px;
+    margin-bottom: 10px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+    font-size: 0.9rem;
+}
+
+.dash-radio-items label:hover,
+.dash-checklist label:hover {
+    background-color: var(--light-bg);
+    border-color: var(--secondary-color);
+}
+
+.dash-radio-items input:checked + label,
+.dash-checklist input:checked + label {
+    background-color: var(--secondary-color);
+    color: white;
+    border-color: var(--secondary-color);
+}
+
+/* Graph Container */
+.graph-container {
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    padding: 10px;
+    margin-bottom: 30px;
+}
+
+/* Error Message */
+#spx-error {
+    background-color: rgba(229, 62, 62, 0.1);
+    border-left: 4px solid var(--danger-color);
+    padding: 12px 20px;
+    margin: 10px 0;
+    border-radius: 0 8px 8px 0;
+    font-weight: 500;
+}
+
+/* Stats Boxes */
+.stats-container {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-around;
+    margin-top: 20px;
+}
+
+.stat-box {
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    padding: 20px;
+    margin: 10px;
+    min-width: 150px;
+    text-align: center;
+    transition: transform 0.3s ease;
+}
+
+.stat-box:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.stat-box h3 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    font-size: 1.1rem;
+    color: var(--primary-color);
+}
+
+.stat-box p {
+    font-size: 1.6rem;
+    font-weight: 700;
+    margin: 0;
+}
+
+.stat-box.primary p {
+    color: var(--primary-color);
+}
+
+.stat-box.success p {
+    color: var(--success-color);
+}
+
+.stat-box.danger p {
+    color: var(--danger-color);
+}
+
+.stat-box.warning p {
+    color: var(--warning-color);
+}
+
+.stat-box.secondary p {
+    color: var(--secondary-color);
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+    h1 {
+        font-size: 2rem;
+    }
+    
+    .stat-box {
+        min-width: 110px;
+    }
+    
+    .dash-radio-items label, 
+    .dash-checklist label {
+        padding: 6px 12px;
+        font-size: 0.8rem;
+    }
+}
+
+/* Custom Plotly Graph Adjustments */
+.js-plotly-plot .plotly .modebar {
+    background-color: transparent !important;
+}
+
+.js-plotly-plot .plotly .modebar-btn {
+    color: var(--secondary-color) !important;
+}
+
+.js-plotly-plot .plotly .modebar-btn:hover {
+    color: var(--primary-color) !important;
+}
+
+/* Loading Animation */
+._dash-loading {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(255, 255, 255, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+._dash-loading::after {
+    content: '';
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 4px solid var(--light-bg);
+    border-top-color: var(--secondary-color);
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}

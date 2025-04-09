@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime
 import os
+import sqlite3
 
 # Create the Dash application
 app = dash.Dash(__name__, title="Trading Activity Visualization")
@@ -50,6 +51,36 @@ app.layout = html.Div(
                 ),
             ],
             style={"margin": "20px"},
+        ),
+        html.Div(
+            [
+                html.Label("SPX Data Display:"),
+                dcc.RadioItems(
+                    id="spx-display-option",
+                    options=[
+                        {"label": "Show SPX", "value": "show"},
+                        {"label": "Hide SPX", "value": "hide"},
+                    ],
+                    value="show",
+                    labelStyle={"display": "inline-block", "margin-right": "20px"},
+                ),
+                html.Label("SPX Data Aggregation:"),
+                dcc.RadioItems(
+                    id="spx-aggregation",
+                    options=[
+                        {"label": "Hourly", "value": "hourly"},
+                        {"label": "Daily", "value": "daily"},
+                        {"label": "Raw Data", "value": "raw"},
+                    ],
+                    value="hourly",
+                    labelStyle={"display": "inline-block", "margin-right": "20px"},
+                ),
+            ],
+            style={"margin": "20px"},
+        ),
+        html.Div(
+            id="spx-error",
+            style={"color": "red", "margin": "10px", "textAlign": "center"},
         ),
         dcc.Graph(id="trading-graph", style={"height": "600px"}),
         html.Div(
@@ -130,6 +161,51 @@ def load_and_process_data(file_path):
     return df
 
 
+def load_spx_data(db_path, start_date=None, end_date=None, aggregation="hourly"):
+    """Load SPX price data from SQLite database with optional date filtering and aggregation"""
+    conn = sqlite3.connect(db_path)
+
+    # Build query based on parameters - only selecting datetime and open price
+    query = "SELECT datetime, open FROM price_data"
+    params = []
+
+    # Add date filters if provided
+    if start_date is not None and end_date is not None:
+        query += " WHERE datetime BETWEEN ? AND ?"
+        params.extend([start_date, end_date])
+    elif start_date is not None:
+        query += " WHERE datetime >= ?"
+        params.append(start_date)
+    elif end_date is not None:
+        query += " WHERE datetime <= ?"
+        params.append(end_date)
+
+    # Order by datetime
+    query += " ORDER BY datetime"
+
+    # Load the data - explicitly converting datetime strings to pandas datetime
+    df = pd.read_sql_query(query, conn, params=params)
+    conn.close()
+
+    # Convert datetime column to pandas datetime with uniform timezone handling
+    df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
+
+    # Apply aggregation if requested
+    if aggregation == "hourly":
+        # Group by hour and aggregate - only using open price
+        df["hour"] = df["datetime"].dt.floor("H")
+        aggregated = df.groupby("hour").agg({"open": "first"}).reset_index()
+        return aggregated.rename(columns={"hour": "datetime"})
+    elif aggregation == "daily":
+        # Group by day and aggregate - only using open price
+        df["day"] = df["datetime"].dt.floor("D")
+        aggregated = df.groupby("day").agg({"open": "first"}).reset_index()
+        return aggregated.rename(columns={"day": "datetime"})
+    else:
+        # Return raw data
+        return df
+
+
 def generate_trade_markers(df, selected_trade_types, include_options):
     """Generate scatter plot data for trade markers"""
     markers = []
@@ -189,15 +265,25 @@ def generate_trade_markers(df, selected_trade_types, include_options):
 
 
 @app.callback(
-    [Output("trading-graph", "figure"), Output("trading-stats", "children")],
-    [Input("timeframe-selector", "value"), Input("trade-type-filter", "value")],
+    [
+        Output("trading-graph", "figure"),
+        Output("trading-stats", "children"),
+        Output("spx-error", "children"),
+    ],
+    [
+        Input("timeframe-selector", "value"),
+        Input("trade-type-filter", "value"),
+        Input("spx-display-option", "value"),
+        Input("spx-aggregation", "value"),
+    ],
 )
-def update_graph(timeframe, selected_trade_types):
-    # Load the data (in a real app, you'd probably load this once and store it)
-    file_path = "History_for_Account_Z09915588.csv"
-    df = load_and_process_data(file_path)
+def update_graph(timeframe, selected_trade_types, show_spx, spx_aggregation):
+    # Load the trading data
+    trading_file_path = "History_for_Account_Z09915588.csv"
+    df = load_and_process_data(trading_file_path)
 
     # Filter by timeframe
+    start_date = None
     if timeframe != "all":
         end_date = df["Run Date"].max()
         if timeframe == "1m":
@@ -208,7 +294,7 @@ def update_graph(timeframe, selected_trade_types):
             start_date = end_date - pd.DateOffset(months=6)
         df = df[df["Run Date"] >= start_date]
 
-    # Create the main figure
+    # Create the main figure with subplots (primary y-axis for P&L, secondary for SPX price)
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
     # Add the cumulative P&L line
@@ -219,7 +305,8 @@ def update_graph(timeframe, selected_trade_types):
             mode="lines",
             name="Cumulative P&L",
             line=dict(color="blue", width=2),
-        )
+        ),
+        secondary_y=False,
     )
 
     # Determine if options are included in the selection
@@ -229,20 +316,69 @@ def update_graph(timeframe, selected_trade_types):
 
     # Add trade markers
     for trace in generate_trade_markers(df, trade_types, include_options):
-        fig.add_trace(trace)
+        fig.add_trace(trace, secondary_y=False)
+
+    # Initialize error message
+    error_message = ""
+
+    # Add SPX price data if requested
+    if show_spx == "show":
+        # Get date range from trading data
+        min_date = df["Run Date"].min().strftime("%Y-%m-%d")
+        max_date = df["Run Date"].max().strftime("%Y-%m-%d")
+
+        # Load SPX data
+        spx_db_path = "spx_data_all.db"
+        try:
+            spx_df = load_spx_data(
+                spx_db_path,
+                start_date=min_date,
+                end_date=max_date,
+                aggregation=spx_aggregation,
+            )
+
+            # Add SPX price as a line on secondary y-axis - using only open price
+            fig.add_trace(
+                go.Scatter(
+                    x=spx_df["datetime"],
+                    y=spx_df["open"],
+                    mode="lines",
+                    name="SPX Price",
+                    line=dict(color="black", width=1),
+                ),
+                secondary_y=True,
+            )
+        except Exception as e:
+            error_message = f"Error loading SPX data: {e}"
+            print(error_message)
+            # Add a div to display the error on the page
+            fig.add_annotation(
+                x=0.5,
+                y=0.5,
+                xref="paper",
+                yref="paper",
+                text=error_message,
+                showarrow=False,
+                font=dict(color="red", size=14),
+            )
 
     # Update layout
     fig.update_layout(
-        title="Trading Activity and Cumulative P&L",
+        title="Trading Activity, Cumulative P&L, and SPX Price",
         xaxis_title="Date",
-        yaxis_title="Cumulative P&L ($)",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         hovermode="closest",
         template="plotly_white",
     )
 
-    # Add a zero reference line
-    fig.add_hline(y=0, line_width=1, line_dash="dash", line_color="black")
+    # Update y-axis titles
+    fig.update_yaxes(title_text="Cumulative P&L ($)", secondary_y=False)
+    fig.update_yaxes(title_text="SPX Price", secondary_y=True)
+
+    # Add a zero reference line for P&L
+    fig.add_hline(
+        y=0, line_width=1, line_dash="dash", line_color="black", secondary_y=False
+    )
 
     # Calculate stats for the trading summary
     total_trades = len(df)
@@ -364,7 +500,7 @@ def update_graph(timeframe, selected_trade_types):
         ),
     ]
 
-    return fig, stats_boxes
+    return fig, stats_boxes, error_message
 
 
 if __name__ == "__main__":

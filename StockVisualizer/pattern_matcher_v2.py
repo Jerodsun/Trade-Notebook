@@ -541,22 +541,27 @@ def create_comparison_charts(
 
         # Add pattern start indicator for previous day
         if include_previous_day:
-            pattern_start_time = pattern_prev_day_data["datetime"].iloc[-pattern_length]
-            fig.add_vline(
-                x=pattern_start_time,
-                line=dict(color="green", width=2),
-                row=1,
-                col=1,
-            )
-            fig.add_annotation(
-                x=pattern_start_time,
-                y=pattern_prev_day_data["low"].min(),
-                text="Pattern Start",
-                showarrow=True,
-                arrowhead=1,
-                row=1,
-                col=1,
-            )
+            last_n_minutes = get_last_n_minutes(pattern_prev_date, pattern_length)
+            
+            if not last_n_minutes.empty:
+                # Use the first timestamp from the last_n_minutes as pattern start
+                pattern_start_time = last_n_minutes["datetime"].iloc[0]
+                
+                fig.add_vline(
+                    x=pattern_start_time,
+                    line=dict(color="green", width=2),
+                    row=1,
+                    col=1,
+                )
+                fig.add_annotation(
+                    x=pattern_start_time,
+                    y=pattern_prev_day_data["low"].min(),
+                    text="Pattern Start",
+                    showarrow=True,
+                    arrowhead=1,
+                    row=1,
+                    col=1,
+                )
 
     # Add candlestick chart for pattern day
     fig.add_trace(
@@ -690,24 +695,28 @@ def create_comparison_charts(
                 )
 
                 # Add pattern start indicator for previous day
-                pattern_start_time = similar_prev_day_data["datetime"].iloc[
-                    -pattern_length
-                ]
-                fig.add_vline(
-                    x=pattern_start_time,
-                    line=dict(color="green", width=2),
-                    row=row_idx,
-                    col=1,
-                )
-                fig.add_annotation(
-                    x=pattern_start_time,
-                    y=similar_prev_day_data["low"].min(),
-                    text="Pattern Start",
-                    showarrow=True,
-                    arrowhead=1,
-                    row=row_idx,
-                    col=1,
-                )
+                if include_previous_day:
+                    # FIXED: Use the last_n_minutes approach for similar patterns too
+                    last_n_minutes = get_last_n_minutes(prev_date, pattern_length)
+                    
+                    if not last_n_minutes.empty:
+                        pattern_start_time = last_n_minutes["datetime"].iloc[0]
+                        
+                        fig.add_vline(
+                            x=pattern_start_time,
+                            line=dict(color="green", width=2),
+                            row=row_idx,
+                            col=1,
+                        )
+                        fig.add_annotation(
+                            x=pattern_start_time,
+                            y=similar_prev_day_data["low"].min(),
+                            text="Pattern Start",
+                            showarrow=True,
+                            arrowhead=1,
+                            row=row_idx,
+                            col=1,
+                        )
 
         # Add candlestick chart for current day
         fig.add_trace(
@@ -807,6 +816,7 @@ def create_comparison_charts(
     return fig
 
 
+
 def create_individual_normalized_charts(
     pattern_date,
     similar_patterns,
@@ -848,14 +858,19 @@ def create_individual_normalized_charts(
         subplot_titles=subplot_titles,
     )
 
+    # Get the pattern data from the previous day if needed
+    pattern_prev_day_last_n = None
+    if include_previous_day and pattern_prev_day_data is not None:
+        pattern_prev_day_last_n = get_last_n_minutes(pattern_prev_date, pattern_length)
+    
     # Process pattern day data
     # For normalized charts, we use a single normalization base across both days
     # This shows the true relationship between the days
     if pattern_prev_day_data is not None:
         # Choose normalization base from beginning of pattern
-        if include_previous_day:
-            # Base is from previous day's beginning of pattern
-            pattern_base_close = pattern_prev_day_data.iloc[-pattern_length]["close"]
+        if include_previous_day and pattern_prev_day_last_n is not None and not pattern_prev_day_last_n.empty:
+            # Base is from beginning of pattern in previous day
+            pattern_base_close = pattern_prev_day_last_n.iloc[0]["close"]
         else:
             # Base is from current day's beginning
             pattern_base_close = pattern_df_full.iloc[0]["close"]
@@ -902,8 +917,8 @@ def create_individual_normalized_charts(
         )
 
         # Add pattern start indicator for previous day
-        if include_previous_day:
-            pattern_start_time = pattern_prev_day_data["datetime"].iloc[-pattern_length]
+        if include_previous_day and pattern_prev_day_last_n is not None and not pattern_prev_day_last_n.empty:
+            pattern_start_time = pattern_prev_day_last_n["datetime"].iloc[0]
             fig.add_vline(
                 x=pattern_start_time,
                 line=dict(color="green", width=2),
@@ -1012,17 +1027,17 @@ def create_individual_normalized_charts(
 
         # If including previous day data, also get previous day
         similar_prev_day_data = None
+        similar_prev_day_last_n = None
         if include_previous_day:
             prev_date = get_previous_trading_day(date)
             if prev_date:
                 similar_prev_day_data = get_full_day_data(prev_date, db_path)
+                similar_prev_day_last_n = get_last_n_minutes(prev_date, pattern_length)
 
                 # For normalized data, use a single normalization base for both days
-                if include_previous_day:
+                if include_previous_day and similar_prev_day_last_n is not None and not similar_prev_day_last_n.empty:
                     # Base from beginning of pattern in previous day
-                    similar_base_close = similar_prev_day_data.iloc[-pattern_length][
-                        "close"
-                    ]
+                    similar_base_close = similar_prev_day_last_n.iloc[0]["close"]
                 else:
                     # Base from beginning of current day
                     similar_base_close = similar_df_full.iloc[0]["close"]
@@ -1071,10 +1086,8 @@ def create_individual_normalized_charts(
                 )
 
                 # Add pattern start indicator for previous day
-                if include_previous_day:
-                    pattern_start_time = similar_prev_day_data["datetime"].iloc[
-                        -pattern_length
-                    ]
+                if include_previous_day and similar_prev_day_last_n is not None and not similar_prev_day_last_n.empty:
+                    pattern_start_time = similar_prev_day_last_n["datetime"].iloc[0]
                     fig.add_vline(
                         x=pattern_start_time,
                         line=dict(color="green", width=2),

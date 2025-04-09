@@ -611,6 +611,10 @@ def create_individual_normalized_charts(
 # Initialize the Dash app
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 
+app.name = "SPX Pattern Matcher"
+app.title = "SPX Pattern Matcher"
+
+
 # Get available dates
 available_dates = get_dates(DB_PATH)
 print(f"Found {len(available_dates)} trading days in database")
@@ -993,11 +997,13 @@ def update_charts(n_clicks, mode, selected_date, pattern_length, top_n):
             # Add debugging info
             print(f"Live data retrieved: {len(live_data)} points")
             print(f"First few rows of live data:\n{live_data.head()}")
-            print(f"Date range in live data: {live_data['date'].min()} to {live_data['date'].max()}")
+            print(
+                f"Date range in live data: {live_data['date'].min()} to {live_data['date'].max()}"
+            )
 
             # Filter to trading hours if needed
             live_data = filter_trading_hours(live_data)
-            
+
             # Make sure we store this data in the database
             store_latest_data(live_data)
 
@@ -1047,6 +1053,7 @@ def update_charts(n_clicks, mode, selected_date, pattern_length, top_n):
 
     except Exception as e:
         import traceback
+
         print(f"Error finding pattern matches: {e}")
         print(traceback.format_exc())
         return (
@@ -1056,20 +1063,6 @@ def update_charts(n_clicks, mode, selected_date, pattern_length, top_n):
         )
 
 
-# Run the app
+# Run app
 if __name__ == "__main__":
-    # Initial setup - make sure we have the latest data
-    # try:
-    #     print("Fetching latest data from Alpaca...")
-    #     latest_data = fetch_latest_data()
-    #     if latest_data is not None and not latest_data.empty:
-    #         print(f"Found {len(latest_data)} new data points")
-    #         store_latest_data(latest_data)
-    #         print("Data stored successfully")
-    #     else:
-    #         print("No new data to store or failed to fetch data")
-    # except Exception as e:
-    #     print(f"Error during initial data setup: {e}")
-
-    # Start the server
-    app.run_server(debug=True)
+    app.run(debug=True, port=8055)

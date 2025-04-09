@@ -213,10 +213,13 @@ def find_similar_patterns_ml(
             return [], None
 
     # Get data for all available dates
-    dates_query = "SELECT DISTINCT date FROM price_data WHERE date != ? ORDER BY date"
-    dates = pd.read_sql_query(dates_query, conn, params=(pattern_date,))[
-        "date"
-    ].tolist()
+    dates_query = "SELECT DISTINCT date FROM price_data ORDER BY date"
+    dates = pd.read_sql_query(dates_query, conn)["date"].tolist()
+    # Remove the pattern date from the list of dates
+    # dates_query = "SELECT DISTINCT date FROM price_data WHERE date != ? ORDER BY date"
+    # dates = pd.read_sql_query(dates_query, conn, params=(pattern_date,))[
+    #     "date"
+    # ].tolist()
 
     # Extract features from the pattern
     pattern_features = extract_features(pattern_df)

@@ -90,6 +90,29 @@ def fetch_latest_data():
         return None
 
 
+# Function to get the previous trading day
+def get_previous_trading_day(date, db_path):
+    """Get the previous trading day from the database for a specific date"""
+    conn = sqlite3.connect(db_path)
+
+    # Get all available dates
+    query = "SELECT DISTINCT date FROM price_data ORDER BY date"
+    all_dates = pd.read_sql_query(query, conn)["date"].tolist()
+    conn.close()
+
+    if not all_dates or date not in all_dates:
+        return None
+
+    # Find the index of the current date
+    current_index = all_dates.index(date)
+
+    # Return the previous date if available
+    if current_index > 0:
+        return all_dates[current_index - 1]
+
+    return None
+
+
 # Function to store latest data in database
 def store_latest_data(df):
     """Store the latest data in the SQLite database"""
@@ -173,112 +196,15 @@ def filter_trading_hours(df):
     return filtered_df
 
 
-def get_previous_trading_day(date):
-    """Get the previous trading day from the database for a given date"""
-    conn = sqlite3.connect(DB_PATH)
-    query = f"SELECT MAX(date) FROM price_data WHERE date < '{date}'"
-    prev_date = pd.read_sql_query(query, conn).iloc[0, 0]
-    conn.close()
-    return prev_date
-
-
-def get_last_n_minutes(date, n):
-    """Get the last n minutes of trading data for a specific date"""
-    conn = sqlite3.connect(DB_PATH)
-    query = f"""
-    SELECT datetime, open, high, low, close 
-    FROM price_data 
-    WHERE date = '{date}'
-    ORDER BY datetime DESC
-    LIMIT {n}
-    """
-    df = pd.read_sql_query(query, conn)
-    df["datetime"] = pd.to_datetime(df["datetime"])
-    # Reverse the order to get chronological order
-    df = df.iloc[::-1].reset_index(drop=True)
-    conn.close()
-    return df
-
-
-def combine_current_and_previous_data(
-    current_date, pattern_length, include_previous_day
-):
-    """
-    Combine data from current day and previous day for pattern matching
-
-    Args:
-        current_date: The target date
-        pattern_length: Number of minutes to include for current day
-        include_previous_day: Boolean to decide whether to include previous day data
-
-    Returns:
-        Combined dataframe with pattern data
-    """
-    # Get current day data
-    conn = sqlite3.connect(DB_PATH)
-    current_query = f"""
-    SELECT datetime, open, high, low, close
-    FROM price_data 
-    WHERE date = '{current_date}'
-    ORDER BY datetime
-    LIMIT {pattern_length}
-    """
-    current_df = pd.read_sql_query(current_query, conn)
-    current_df["datetime"] = pd.to_datetime(current_df["datetime"])
-
-    if not include_previous_day:
-        conn.close()
-        return current_df
-
-    # Get previous trading day
-    prev_date = get_previous_trading_day(current_date)
-    if not prev_date:
-        conn.close()
-        return current_df
-
-    # Get the last 'pattern_length' minutes of the previous day
-    prev_query = f"""
-    SELECT datetime, open, high, low, close
-    FROM price_data 
-    WHERE date = '{prev_date}'
-    ORDER BY datetime DESC
-    LIMIT {pattern_length}
-    """
-    prev_df = pd.read_sql_query(prev_query, conn)
-    prev_df["datetime"] = pd.to_datetime(prev_df["datetime"])
-    # Reverse to get chronological order
-    prev_df = prev_df.iloc[::-1].reset_index(drop=True)
-    conn.close()
-
-    # Combine previous and current day data
-    # We need to handle the datetime to avoid confusion in the chart
-    # Add a day to previous day's datetime to show it comes before current day's data
-    if not prev_df.empty:
-        # Create a new column to identify data source
-        prev_df["data_source"] = f"Previous Day ({prev_date})"
-        current_df["data_source"] = f"Current Day ({current_date})"
-
-        # Combine the dataframes
-        combined_df = pd.concat([prev_df, current_df], ignore_index=True)
-        return combined_df
-
-    return current_df
-
-
 def find_similar_patterns_ml(
-    db_path,
-    pattern_date,
-    pattern_length=60,
-    top_n=5,
-    live_data=None,
-    include_previous_day=False,
+    db_path, pattern_date, pattern_length=60, top_n=5, live_data=None
 ):
     """
     Find similar patterns using machine learning techniques
 
     This function:
-    1. Extracts the pattern data for the target date (and optionally previous day)
-    2. Extracts similar patterns for all other dates
+    1. Extracts the first hour of trading for the target date
+    2. Extracts the first hour for all other dates
     3. Normalizes the price patterns
     4. Uses nearest neighbors to find the most similar patterns
 
@@ -290,39 +216,18 @@ def find_similar_patterns_ml(
     if live_data is not None and not live_data.empty:
         # Use live data as pattern
         pattern_df = live_data.head(pattern_length)
-        today_date = datetime.now().date().strftime("%Y-%m-%d")
-
-        if include_previous_day:
-            # Get previous trading day's data and combine with live data
-            prev_date = get_previous_trading_day(today_date)
-            if prev_date:
-                prev_data = get_last_n_minutes(prev_date, pattern_length)
-
-                # Add source column
-                prev_data["data_source"] = f"Previous Day ({prev_date})"
-                pattern_df["data_source"] = f"Current Day ({today_date})"
-
-                # Combine data
-                pattern_df = pd.concat([prev_data, pattern_df], ignore_index=True)
-
         pattern_date = "Today (Live)"
     else:
-        # Get pattern data for the selected date (and optionally previous day)
-        if include_previous_day:
-            pattern_df = combine_current_and_previous_data(
-                pattern_date, pattern_length, True
-            )
-        else:
-            # Get just the current day data
-            pattern_query = f"""
-            SELECT datetime, open, high, low, close
-            FROM price_data 
-            WHERE date = '{pattern_date}'
-            ORDER BY datetime
-            LIMIT {pattern_length}
-            """
-            pattern_df = pd.read_sql_query(pattern_query, conn)
-            pattern_df["datetime"] = pd.to_datetime(pattern_df["datetime"])
+        # Get pattern data for the selected date from database
+        pattern_query = f"""
+        SELECT datetime, open, high, low, close
+        FROM price_data 
+        WHERE date = '{pattern_date}'
+        ORDER BY datetime
+        LIMIT {pattern_length}
+        """
+        pattern_df = pd.read_sql_query(pattern_query, conn)
+        pattern_df["datetime"] = pd.to_datetime(pattern_df["datetime"])
 
     if len(pattern_df) < pattern_length:
         print(f"Warning: Found only {len(pattern_df)} data points for {pattern_date}")
@@ -344,40 +249,27 @@ def find_similar_patterns_ml(
     date_dfs = []
 
     for date in dates:
-        # Skip recent dates if we're in live mode
-        if pattern_date == "Today (Live)" and date >= datetime.now().date().strftime(
-            "%Y-%m-%d"
-        ):
+        # Get first hour data
+        query = f"""
+        SELECT datetime, open, high, low, close
+        FROM price_data 
+        WHERE date = '{date}'
+        ORDER BY datetime
+        LIMIT {pattern_length}
+        """
+
+        date_df = pd.read_sql_query(query, conn)
+        date_df["datetime"] = pd.to_datetime(date_df["datetime"])
+
+        # Skip if not enough data
+        if len(date_df) < pattern_length:
             continue
 
-        try:
-            # Get matching pattern data (with or without previous day)
-            if include_previous_day:
-                date_df = combine_current_and_previous_data(date, pattern_length, True)
-            else:
-                # Get just the current day data
-                query = f"""
-                SELECT datetime, open, high, low, close
-                FROM price_data 
-                WHERE date = '{date}'
-                ORDER BY datetime
-                LIMIT {pattern_length}
-                """
-                date_df = pd.read_sql_query(query, conn)
-                date_df["datetime"] = pd.to_datetime(date_df["datetime"])
+        # Extract features
+        features = extract_features(date_df)
 
-            # Skip if not enough data
-            if len(date_df) < pattern_length:
-                continue
-
-            # Extract features
-            features = extract_features(date_df)
-
-            all_features.append(features)
-            date_dfs.append((date, date_df))
-        except Exception as e:
-            print(f"Error processing date {date}: {e}")
-            continue
+        all_features.append(features)
+        date_dfs.append((date, date_df))
 
     # Convert to numpy array for ML
     X = np.array(all_features)
@@ -421,12 +313,9 @@ def extract_features(df):
     3. Volatility measures
     4. Technical indicators
     """
-    # Get the close prices for feature extraction
-    close_prices = df["close"].values
-
     # Normalize prices
     scaler = MinMaxScaler()
-    close_norm = scaler.fit_transform(close_prices.reshape(-1, 1)).flatten()
+    close_norm = scaler.fit_transform(df["close"].values.reshape(-1, 1)).flatten()
 
     # Calculate returns
     returns = np.diff(close_norm)
@@ -458,24 +347,12 @@ def get_full_day_data(date, db_path):
 
 
 def create_comparison_charts(
-    pattern_date,
-    similar_patterns,
-    db_path,
-    pattern_length=60,
-    pattern_df_full=None,
-    include_previous_day=False,
+    pattern_date, similar_patterns, db_path, pattern_length=60, pattern_df_full=None
 ):
     """Create a figure with multiple subplots comparing the pattern day with similar days"""
     # Get full day data for pattern date (if not provided)
     if pattern_df_full is None:
         pattern_df_full = get_full_day_data(pattern_date, db_path)
-
-    # If including previous day for pattern day
-    pattern_prev_day_data = None
-    if include_previous_day and pattern_date != "Today (Live)":
-        pattern_prev_date = get_previous_trading_day(pattern_date)
-        if pattern_prev_date:
-            pattern_prev_day_data = get_full_day_data(pattern_prev_date, db_path)
 
     # Calculate number of rows needed
     n_rows = len(similar_patterns) + 1  # +1 for the pattern day
@@ -486,82 +363,12 @@ def create_comparison_charts(
         cols=1,
         shared_xaxes=False,  # Changed to False to allow individual x-axis zooming
         vertical_spacing=0.05,  # Increased spacing for better separation
-        subplot_titles=[
-            f"Pattern Day: {pattern_date}"
-            + (
-                f" (with previous day: {pattern_prev_date})"
-                if pattern_prev_day_data is not None
-                else ""
-            )
-        ]
+        subplot_titles=[f"Pattern Day: {pattern_date}"]
         + [
             f"Match {i+1}: {date} (Similarity: {similarity:.4f})"
             for i, (date, similarity, _) in enumerate(similar_patterns)
         ],
     )
-
-    # Add previous day data for pattern day if available
-    if pattern_prev_day_data is not None:
-        fig.add_trace(
-            go.Candlestick(
-                x=pattern_prev_day_data["datetime"],
-                open=pattern_prev_day_data["open"],
-                high=pattern_prev_day_data["high"],
-                low=pattern_prev_day_data["low"],
-                close=pattern_prev_day_data["close"],
-                name=f"Previous Day: {pattern_prev_date}",
-                increasing=dict(
-                    line=dict(color="rgba(0, 128, 0, 0.7)")
-                ),  # Lighter green
-                decreasing=dict(line=dict(color="rgba(255, 0, 0, 0.7)")),  # Lighter red
-                showlegend=False,
-            ),
-            row=1,
-            col=1,
-        )
-
-        # Add vertical separator between days
-        fig.add_vline(
-            x=pattern_prev_day_data["datetime"].iloc[-1] + pd.Timedelta(minutes=1),
-            line=dict(color="blue", width=2, dash="dash"),
-            row=1,
-            col=1,
-        )
-
-        # Add day separator annotation
-        fig.add_annotation(
-            x=pattern_prev_day_data["datetime"].iloc[-1] + pd.Timedelta(minutes=5),
-            y=pattern_prev_day_data["high"].max(),
-            text="Day Change",
-            showarrow=True,
-            arrowhead=1,
-            row=1,
-            col=1,
-        )
-
-        # Add pattern start indicator for previous day
-        if include_previous_day:
-            last_n_minutes = get_last_n_minutes(pattern_prev_date, pattern_length)
-            
-            if not last_n_minutes.empty:
-                # Use the first timestamp from the last_n_minutes as pattern start
-                pattern_start_time = last_n_minutes["datetime"].iloc[0]
-                
-                fig.add_vline(
-                    x=pattern_start_time,
-                    line=dict(color="green", width=2),
-                    row=1,
-                    col=1,
-                )
-                fig.add_annotation(
-                    x=pattern_start_time,
-                    y=pattern_prev_day_data["low"].min(),
-                    text="Pattern Start",
-                    showarrow=True,
-                    arrowhead=1,
-                    row=1,
-                    col=1,
-                )
 
     # Add candlestick chart for pattern day
     fig.add_trace(
@@ -578,57 +385,22 @@ def create_comparison_charts(
         col=1,
     )
 
-    # Set y-axis range for pattern day based on its own data plus previous day if included
-    if pattern_prev_day_data is not None:
-        pattern_min = (
-            min(pattern_df_full["low"].min(), pattern_prev_day_data["low"].min())
-            * 0.999
-        )
-        pattern_max = (
-            max(pattern_df_full["high"].max(), pattern_prev_day_data["high"].max())
-            * 1.001
-        )
-    else:
-        pattern_min = pattern_df_full["low"].min() * 0.999  # Add small buffer
-        pattern_max = pattern_df_full["high"].max() * 1.001
-
+    # Set y-axis range for pattern day based on its own data
+    pattern_min = pattern_df_full["low"].min() * 0.999  # Add small buffer
+    pattern_max = pattern_df_full["high"].max() * 1.001
     fig.update_yaxes(range=[pattern_min, pattern_max], row=1, col=1)
 
-    # Add pattern start or end marker
-    # If including previous day, we already marked the start
-    # If not including previous day, mark at the beginning of current day
-    if not include_previous_day or pattern_prev_day_data is None:
-        pattern_start_time = pattern_df_full["datetime"].iloc[0]
-        fig.add_vline(
-            x=pattern_start_time,
-            line=dict(color="green", width=2),
-            row=1,
-            col=1,
-        )
-        fig.add_annotation(
-            x=pattern_start_time,
-            y=pattern_df_full["low"].min(),
-            text="Pattern Start",
-            showarrow=True,
-            arrowhead=1,
-            row=1,
-            col=1,
-        )
-
-    # Add pattern end marker
+    # Add vertical line at the pattern length mark
     if len(pattern_df_full) > pattern_length:
-        pattern_end_time = pattern_df_full.iloc[pattern_length - 1]["datetime"]
+        cutoff_time = pattern_df_full.iloc[pattern_length - 1]["datetime"]
 
         fig.add_vline(
-            x=pattern_end_time,
-            line=dict(color="red", width=2, dash="dash"),
-            row=1,
-            col=1,
+            x=cutoff_time, line=dict(color="red", width=1, dash="dash"), row=1, col=1
         )
 
         # Add annotation
         fig.add_annotation(
-            x=pattern_end_time,
+            x=cutoff_time,
             y=pattern_df_full["high"].max(),
             text="Pattern End",
             showarrow=True,
@@ -639,86 +411,10 @@ def create_comparison_charts(
 
     # Add charts for similar days
     for i, (date, similarity, _) in enumerate(similar_patterns):
-        # Row index (add 2 to account for pattern day)
-        row_idx = i + 2
-
         # Get full day data
         similar_df_full = get_full_day_data(date, db_path)
 
-        # If including previous day data, also get previous day
-        similar_prev_day_data = None
-        if include_previous_day:
-            prev_date = get_previous_trading_day(date)
-            if prev_date:
-                similar_prev_day_data = get_full_day_data(prev_date, db_path)
-
-                # Add previous day data
-                fig.add_trace(
-                    go.Candlestick(
-                        x=similar_prev_day_data["datetime"],
-                        open=similar_prev_day_data["open"],
-                        high=similar_prev_day_data["high"],
-                        low=similar_prev_day_data["low"],
-                        close=similar_prev_day_data["close"],
-                        name=f"Previous Day: {prev_date}",
-                        increasing=dict(
-                            line=dict(color="rgba(0, 128, 0, 0.7)")
-                        ),  # Lighter green
-                        decreasing=dict(
-                            line=dict(color="rgba(255, 0, 0, 0.7)")
-                        ),  # Lighter red
-                        showlegend=False,
-                    ),
-                    row=row_idx,
-                    col=1,
-                )
-
-                # Add vertical separator between days
-                fig.add_vline(
-                    x=similar_prev_day_data["datetime"].iloc[-1]
-                    + pd.Timedelta(minutes=1),
-                    line=dict(color="blue", width=2, dash="dash"),
-                    row=row_idx,
-                    col=1,
-                )
-
-                # Add day separator annotation
-                fig.add_annotation(
-                    x=similar_prev_day_data["datetime"].iloc[-1]
-                    + pd.Timedelta(minutes=5),
-                    y=similar_prev_day_data["high"].max(),
-                    text="Day Change",
-                    showarrow=True,
-                    arrowhead=1,
-                    row=row_idx,
-                    col=1,
-                )
-
-                # Add pattern start indicator for previous day
-                if include_previous_day:
-                    # FIXED: Use the last_n_minutes approach for similar patterns too
-                    last_n_minutes = get_last_n_minutes(prev_date, pattern_length)
-                    
-                    if not last_n_minutes.empty:
-                        pattern_start_time = last_n_minutes["datetime"].iloc[0]
-                        
-                        fig.add_vline(
-                            x=pattern_start_time,
-                            line=dict(color="green", width=2),
-                            row=row_idx,
-                            col=1,
-                        )
-                        fig.add_annotation(
-                            x=pattern_start_time,
-                            y=similar_prev_day_data["low"].min(),
-                            text="Pattern Start",
-                            showarrow=True,
-                            arrowhead=1,
-                            row=row_idx,
-                            col=1,
-                        )
-
-        # Add candlestick chart for current day
+        # Add candlestick chart
         fig.add_trace(
             go.Candlestick(
                 x=similar_df_full["datetime"],
@@ -729,69 +425,41 @@ def create_comparison_charts(
                 name=f"Match {i+1}: {date}",
                 showlegend=False,
             ),
-            row=row_idx,
+            row=i + 2,
             col=1,
         )
 
-        # Set y-axis range combining both days if needed
-        if similar_prev_day_data is not None:
-            similar_min = (
-                min(similar_df_full["low"].min(), similar_prev_day_data["low"].min())
-                * 0.999
-            )
-            similar_max = (
-                max(similar_df_full["high"].max(), similar_prev_day_data["high"].max())
-                * 1.001
-            )
-        else:
-            similar_min = similar_df_full["low"].min() * 0.999  # Add small buffer
-            similar_max = similar_df_full["high"].max() * 1.001
+        # Set y-axis range for this similar day based on its own data
+        similar_min = similar_df_full["low"].min() * 0.999  # Add small buffer
+        similar_max = similar_df_full["high"].max() * 1.001
+        fig.update_yaxes(range=[similar_min, similar_max], row=i + 2, col=1)
 
-        fig.update_yaxes(range=[similar_min, similar_max], row=row_idx, col=1)
-
-        # Add pattern start marker if not already added with previous day
-        if not include_previous_day or similar_prev_day_data is None:
-            pattern_start_time = similar_df_full["datetime"].iloc[0]
-            fig.add_vline(
-                x=pattern_start_time,
-                line=dict(color="green", width=2),
-                row=row_idx,
-                col=1,
-            )
-            fig.add_annotation(
-                x=pattern_start_time,
-                y=similar_df_full["low"].min(),
-                text="Pattern Start",
-                showarrow=True,
-                arrowhead=1,
-                row=row_idx,
-                col=1,
-            )
-
-        # Add pattern end marker
+        # Add vertical line at the pattern length mark
         if len(similar_df_full) > pattern_length:
-            pattern_end_time = similar_df_full.iloc[pattern_length - 1]["datetime"]
+            cutoff_time = similar_df_full.iloc[pattern_length - 1]["datetime"]
+
             fig.add_vline(
-                x=pattern_end_time,
-                line=dict(color="red", width=2, dash="dash"),
-                row=row_idx,
+                x=cutoff_time,
+                line=dict(color="red", width=1, dash="dash"),
+                row=i + 2,
                 col=1,
             )
+
+            # Add annotation
             fig.add_annotation(
-                x=pattern_end_time,
+                x=cutoff_time,
                 y=similar_df_full["high"].max(),
                 text="Pattern End",
                 showarrow=True,
                 arrowhead=1,
-                row=row_idx,
+                row=i + 2,
                 col=1,
             )
 
     # Update layout
-    prev_day_text = " (including previous day)" if include_previous_day else ""
     fig.update_layout(
         height=300 * n_rows,  # Increased height per row for better visibility
-        title=f"Comparison of {pattern_date} with Most Similar Trading Days (First {pattern_length} minutes{prev_day_text})",
+        title=f"Comparison of {pattern_date} with Most Similar Trading Days (First {pattern_length} minutes)",
         template="plotly_white",
     )
 
@@ -816,130 +484,42 @@ def create_comparison_charts(
     return fig
 
 
-
 def create_individual_normalized_charts(
-    pattern_date,
-    similar_patterns,
-    db_path,
-    pattern_length=60,
-    pattern_df_full=None,
-    include_previous_day=False,
+    pattern_date, similar_patterns, db_path, pattern_length=60, pattern_df_full=None
 ):
-    """Create individual normalized charts for each pattern day"""
+    """Create individual normalized charts for each pattern day with previous day reference"""
     # Get full day data for pattern date (if not provided)
     if pattern_df_full is None:
         pattern_df_full = get_full_day_data(pattern_date, db_path)
 
-    # If including previous day for pattern day
-    pattern_prev_day_data = None
-    if include_previous_day and pattern_date != "Today (Live)":
-        pattern_prev_date = get_previous_trading_day(pattern_date)
-        if pattern_prev_date:
-            pattern_prev_day_data = get_full_day_data(pattern_prev_date, db_path)
+    # Get previous trading day for the pattern date
+    prev_pattern_date = get_previous_trading_day(pattern_date, db_path)
+    if prev_pattern_date:
+        prev_pattern_df = get_full_day_data(prev_pattern_date, db_path)
+    else:
+        prev_pattern_df = None
 
     # Calculate number of rows needed
     n_rows = len(similar_patterns) + 1  # +1 for the pattern day
 
     # Create subplots
-    subplot_titles = [f"Pattern Day: {pattern_date} (Normalized)"]
-    if pattern_prev_day_data is not None:
-        subplot_titles[0] += f" (with previous day: {pattern_prev_date})"
-
-    subplot_titles += [
-        f"Match {i+1}: {date} (Normalized, Similarity: {similarity:.4f})"
-        for i, (date, similarity, _) in enumerate(similar_patterns)
-    ]
-
     fig = make_subplots(
         rows=n_rows,
         cols=1,
         shared_xaxes=False,  # Allow individual x-axis zooming
         vertical_spacing=0.05,
-        subplot_titles=subplot_titles,
+        subplot_titles=[f"Pattern Day: {pattern_date} (Normalized)"]
+        + [
+            f"Match {i+1}: {date} (Normalized, Similarity: {similarity:.4f})"
+            for i, (date, similarity, _) in enumerate(similar_patterns)
+        ],
     )
 
-    # Get the pattern data from the previous day if needed
-    pattern_prev_day_last_n = None
-    if include_previous_day and pattern_prev_day_data is not None:
-        pattern_prev_day_last_n = get_last_n_minutes(pattern_prev_date, pattern_length)
-    
-    # Process pattern day data
-    # For normalized charts, we use a single normalization base across both days
-    # This shows the true relationship between the days
-    if pattern_prev_day_data is not None:
-        # Choose normalization base from beginning of pattern
-        if include_previous_day and pattern_prev_day_last_n is not None and not pattern_prev_day_last_n.empty:
-            # Base is from beginning of pattern in previous day
-            pattern_base_close = pattern_prev_day_last_n.iloc[0]["close"]
-        else:
-            # Base is from current day's beginning
-            pattern_base_close = pattern_df_full.iloc[0]["close"]
-
-        # Normalize both days with the same base
-        pattern_prev_day_data["normalized"] = (
-            pattern_prev_day_data["close"] / pattern_base_close
-        ) * 100
-        pattern_df_full["normalized"] = (
-            pattern_df_full["close"] / pattern_base_close
-        ) * 100
-
-        # Add previous day trace
-        fig.add_trace(
-            go.Scatter(
-                x=pattern_prev_day_data["datetime"],
-                y=pattern_prev_day_data["normalized"],
-                mode="lines",
-                name=f"Previous Day: {pattern_prev_date}",
-                line=dict(color="darkgray", width=2, dash="dot"),
-                showlegend=False,
-            ),
-            row=1,
-            col=1,
-        )
-
-        # Add vertical separator between days
-        fig.add_vline(
-            x=pattern_prev_day_data["datetime"].iloc[-1] + pd.Timedelta(minutes=1),
-            line=dict(color="blue", width=2, dash="dash"),
-            row=1,
-            col=1,
-        )
-
-        # Add day separator annotation
-        fig.add_annotation(
-            x=pattern_prev_day_data["datetime"].iloc[-1] + pd.Timedelta(minutes=5),
-            y=pattern_prev_day_data["normalized"].max(),
-            text="Day Change",
-            showarrow=True,
-            arrowhead=1,
-            row=1,
-            col=1,
-        )
-
-        # Add pattern start indicator for previous day
-        if include_previous_day and pattern_prev_day_last_n is not None and not pattern_prev_day_last_n.empty:
-            pattern_start_time = pattern_prev_day_last_n["datetime"].iloc[0]
-            fig.add_vline(
-                x=pattern_start_time,
-                line=dict(color="green", width=2),
-                row=1,
-                col=1,
-            )
-            fig.add_annotation(
-                x=pattern_start_time,
-                y=pattern_prev_day_data["normalized"].min(),
-                text="Pattern Start",
-                showarrow=True,
-                arrowhead=1,
-                row=1,
-                col=1,
-            )
-    else:
-        # Standard normalization for single day
-        pattern_close_first = pattern_df_full.iloc[0]["close"]
-        pattern_df_full["normalized"] = (
-            pattern_df_full["close"] / pattern_close_first
-        ) * 100
+    # Normalize and add pattern day
+    pattern_close_first = pattern_df_full.iloc[0]["close"]
+    pattern_df_full["normalized"] = (
+        pattern_df_full["close"] / pattern_close_first
+    ) * 100
 
     # Add pattern day trace
     fig.add_trace(
@@ -955,58 +535,56 @@ def create_individual_normalized_charts(
         col=1,
     )
 
-    # Set y-axis range with buffer (combining both days)
-    if pattern_prev_day_data is not None:
-        y_min = (
-            min(
-                pattern_df_full["normalized"].min(),
-                pattern_prev_day_data["normalized"].min(),
-            )
-            * 0.999
-        )
-        y_max = (
-            max(
-                pattern_df_full["normalized"].max(),
-                pattern_prev_day_data["normalized"].max(),
-            )
-            * 1.001
-        )
-    else:
-        y_min = pattern_df_full["normalized"].min() * 0.999
-        y_max = pattern_df_full["normalized"].max() * 1.001
+    # Add previous day normalized trace if available
+    if prev_pattern_df is not None:
+        # Normalize previous day data
+        prev_pattern_close_first = prev_pattern_df.iloc[0]["close"]
+        prev_pattern_df["normalized"] = (
+            prev_pattern_df["close"] / prev_pattern_close_first
+        ) * 100
 
+        # Match the starting points
+        shift_value = (
+            pattern_df_full["normalized"].iloc[0]
+            - prev_pattern_df["normalized"].iloc[0]
+        )
+        prev_pattern_df["normalized_shifted"] = (
+            prev_pattern_df["normalized"] + shift_value
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=prev_pattern_df["datetime"],
+                y=prev_pattern_df["normalized_shifted"],
+                mode="lines",
+                name=f"Previous Day: {prev_pattern_date}",
+                line=dict(color="gray", width=1, dash="dot"),
+                showlegend=False,
+            ),
+            row=1,
+            col=1,
+        )
+
+    # Set y-axis range with buffer
+    y_min = pattern_df_full["normalized"].min() * 0.999
+    y_max = pattern_df_full["normalized"].max() * 1.001
+    # Adjust range if needed for previous day
+    if prev_pattern_df is not None:
+        y_min = min(y_min, prev_pattern_df["normalized_shifted"].min() * 0.999)
+        y_max = max(y_max, prev_pattern_df["normalized_shifted"].max() * 1.001)
     fig.update_yaxes(range=[y_min, y_max], row=1, col=1)
 
-    # Add pattern start marker if not already added with previous day
-    if not include_previous_day or pattern_prev_day_data is None:
-        pattern_start_time = pattern_df_full["datetime"].iloc[0]
+    # Add vertical line at pattern length mark
+    if len(pattern_df_full) > pattern_length:
+        cutoff_time = pattern_df_full.iloc[pattern_length - 1]["datetime"]
+
         fig.add_vline(
-            x=pattern_start_time,
-            line=dict(color="green", width=2),
-            row=1,
-            col=1,
-        )
-        fig.add_annotation(
-            x=pattern_start_time,
-            y=pattern_df_full["normalized"].min(),
-            text="Pattern Start",
-            showarrow=True,
-            arrowhead=1,
-            row=1,
-            col=1,
+            x=cutoff_time, line=dict(color="red", width=1, dash="dash"), row=1, col=1
         )
 
-    # Add pattern end vertical line at pattern length mark
-    if len(pattern_df_full) > pattern_length:
-        pattern_end_time = pattern_df_full.iloc[pattern_length - 1]["datetime"]
-        fig.add_vline(
-            x=pattern_end_time,
-            line=dict(color="red", width=2, dash="dash"),
-            row=1,
-            col=1,
-        )
+        # Add annotation
         fig.add_annotation(
-            x=pattern_end_time,
+            x=cutoff_time,
             y=pattern_df_full["normalized"].max(),
             text="Pattern End",
             showarrow=True,
@@ -1020,97 +598,24 @@ def create_individual_normalized_charts(
 
     for i, (date, similarity, _) in enumerate(similar_patterns):
         color = colors[i % len(colors)]
-        row_idx = i + 2
 
         # Get full day data
         similar_df_full = get_full_day_data(date, db_path)
 
-        # If including previous day data, also get previous day
-        similar_prev_day_data = None
-        similar_prev_day_last_n = None
-        if include_previous_day:
-            prev_date = get_previous_trading_day(date)
-            if prev_date:
-                similar_prev_day_data = get_full_day_data(prev_date, db_path)
-                similar_prev_day_last_n = get_last_n_minutes(prev_date, pattern_length)
-
-                # For normalized data, use a single normalization base for both days
-                if include_previous_day and similar_prev_day_last_n is not None and not similar_prev_day_last_n.empty:
-                    # Base from beginning of pattern in previous day
-                    similar_base_close = similar_prev_day_last_n.iloc[0]["close"]
-                else:
-                    # Base from beginning of current day
-                    similar_base_close = similar_df_full.iloc[0]["close"]
-
-                # Normalize both days
-                similar_prev_day_data["normalized"] = (
-                    similar_prev_day_data["close"] / similar_base_close
-                ) * 100
-                similar_df_full["normalized"] = (
-                    similar_df_full["close"] / similar_base_close
-                ) * 100
-
-                # Add previous day trace
-                fig.add_trace(
-                    go.Scatter(
-                        x=similar_prev_day_data["datetime"],
-                        y=similar_prev_day_data["normalized"],
-                        mode="lines",
-                        name=f"Prev Day for Match {i+1}",
-                        line=dict(color=color, width=1, dash="dot"),
-                        showlegend=False,
-                    ),
-                    row=row_idx,
-                    col=1,
-                )
-
-                # Add vertical separator between days
-                fig.add_vline(
-                    x=similar_prev_day_data["datetime"].iloc[-1]
-                    + pd.Timedelta(minutes=1),
-                    line=dict(color="blue", width=2, dash="dash"),
-                    row=row_idx,
-                    col=1,
-                )
-
-                # Add day separator annotation
-                fig.add_annotation(
-                    x=similar_prev_day_data["datetime"].iloc[-1]
-                    + pd.Timedelta(minutes=5),
-                    y=similar_prev_day_data["normalized"].max(),
-                    text="Day Change",
-                    showarrow=True,
-                    arrowhead=1,
-                    row=row_idx,
-                    col=1,
-                )
-
-                # Add pattern start indicator for previous day
-                if include_previous_day and similar_prev_day_last_n is not None and not similar_prev_day_last_n.empty:
-                    pattern_start_time = similar_prev_day_last_n["datetime"].iloc[0]
-                    fig.add_vline(
-                        x=pattern_start_time,
-                        line=dict(color="green", width=2),
-                        row=row_idx,
-                        col=1,
-                    )
-                    fig.add_annotation(
-                        x=pattern_start_time,
-                        y=similar_prev_day_data["normalized"].min(),
-                        text="Pattern Start",
-                        showarrow=True,
-                        arrowhead=1,
-                        row=row_idx,
-                        col=1,
-                    )
+        # Get previous trading day for this similar day
+        prev_similar_date = get_previous_trading_day(date, db_path)
+        if prev_similar_date:
+            prev_similar_df = get_full_day_data(prev_similar_date, db_path)
         else:
-            # Standard normalization for single day
-            similar_close_first = similar_df_full.iloc[0]["close"]
-            similar_df_full["normalized"] = (
-                similar_df_full["close"] / similar_close_first
-            ) * 100
+            prev_similar_df = None
 
-        # Add current day trace
+        # Normalize
+        similar_close_first = similar_df_full.iloc[0]["close"]
+        similar_df_full["normalized"] = (
+            similar_df_full["close"] / similar_close_first
+        ) * 100
+
+        # Add trace
         fig.add_trace(
             go.Scatter(
                 x=similar_df_full["datetime"],
@@ -1120,75 +625,75 @@ def create_individual_normalized_charts(
                 line=dict(color=color, width=2),
                 showlegend=False,
             ),
-            row=row_idx,
+            row=i + 2,
             col=1,
         )
 
-        # Set y-axis range with buffer (combining both days)
-        if similar_prev_day_data is not None:
-            y_min = (
-                min(
-                    similar_df_full["normalized"].min(),
-                    similar_prev_day_data["normalized"].min(),
-                )
-                * 0.999
-            )
-            y_max = (
-                max(
-                    similar_df_full["normalized"].max(),
-                    similar_prev_day_data["normalized"].max(),
-                )
-                * 1.001
-            )
-        else:
-            y_min = similar_df_full["normalized"].min() * 0.999
-            y_max = similar_df_full["normalized"].max() * 1.001
+        # Add previous day normalized trace if available
+        if prev_similar_df is not None:
+            # Normalize previous day data
+            prev_similar_close_first = prev_similar_df.iloc[0]["close"]
+            prev_similar_df["normalized"] = (
+                prev_similar_df["close"] / prev_similar_close_first
+            ) * 100
 
-        fig.update_yaxes(range=[y_min, y_max], row=row_idx, col=1)
-
-        # Add pattern start marker if not already added with previous day
-        if not include_previous_day or similar_prev_day_data is None:
-            pattern_start_time = similar_df_full["datetime"].iloc[0]
-            fig.add_vline(
-                x=pattern_start_time,
-                line=dict(color="green", width=2),
-                row=row_idx,
-                col=1,
+            # Match the starting points
+            shift_value = (
+                similar_df_full["normalized"].iloc[0]
+                - prev_similar_df["normalized"].iloc[0]
             )
-            fig.add_annotation(
-                x=pattern_start_time,
-                y=similar_df_full["normalized"].min(),
-                text="Pattern Start",
-                showarrow=True,
-                arrowhead=1,
-                row=row_idx,
+            prev_similar_df["normalized_shifted"] = (
+                prev_similar_df["normalized"] + shift_value
+            )
+
+            fig.add_trace(
+                go.Scatter(
+                    x=prev_similar_df["datetime"],
+                    y=prev_similar_df["normalized_shifted"],
+                    mode="lines",
+                    name=f"Previous Day: {prev_similar_date}",
+                    line=dict(color="gray", width=1, dash="dot"),
+                    showlegend=False,
+                ),
+                row=i + 2,
                 col=1,
             )
 
-        # Add pattern end marker
+        # Set y-axis range with buffer
+        y_min = similar_df_full["normalized"].min() * 0.999
+        y_max = similar_df_full["normalized"].max() * 1.001
+        # Adjust range if needed for previous day
+        if prev_similar_df is not None:
+            y_min = min(y_min, prev_similar_df["normalized_shifted"].min() * 0.999)
+            y_max = max(y_max, prev_similar_df["normalized_shifted"].max() * 1.001)
+        fig.update_yaxes(range=[y_min, y_max], row=i + 2, col=1)
+
+        # Add vertical line at pattern length mark
         if len(similar_df_full) > pattern_length:
-            pattern_end_time = similar_df_full.iloc[pattern_length - 1]["datetime"]
+            cutoff_time = similar_df_full.iloc[pattern_length - 1]["datetime"]
+
             fig.add_vline(
-                x=pattern_end_time,
-                line=dict(color="red", width=2, dash="dash"),
-                row=row_idx,
+                x=cutoff_time,
+                line=dict(color="red", width=1, dash="dash"),
+                row=i + 2,
                 col=1,
             )
+
+            # Add annotation
             fig.add_annotation(
-                x=pattern_end_time,
+                x=cutoff_time,
                 y=similar_df_full["normalized"].max(),
                 text="Pattern End",
                 showarrow=True,
                 arrowhead=1,
-                row=row_idx,
+                row=i + 2,
                 col=1,
             )
 
     # Update layout
-    prev_day_text = " (including previous day)" if include_previous_day else ""
     fig.update_layout(
         height=300 * n_rows,
-        title=f"Individual Normalized Price Comparisons (Base 100){prev_day_text}",
+        title="Individual Normalized Price Comparisons (Base 100)",
         template="plotly_white",
     )
 
@@ -1267,26 +772,6 @@ app.layout = dbc.Container(
                                                             value="historical",
                                                             inline=True,
                                                             className="mb-2",
-                                                        ),
-                                                    ],
-                                                    width=12,
-                                                ),
-                                            ]
-                                        ),
-                                        # Include Previous Day Trading Data Option
-                                        dbc.Row(
-                                            [
-                                                dbc.Col(
-                                                    [
-                                                        dbc.Switch(
-                                                            id="include-previous-day-switch",
-                                                            label="Include Previous Trading Day Data",
-                                                            value=False,
-                                                            className="mb-2",
-                                                        ),
-                                                        html.Small(
-                                                            "When enabled, pattern matching includes previous trading day's closing data",
-                                                            className="text-muted",
                                                         ),
                                                     ],
                                                     width=12,
@@ -1408,20 +893,21 @@ app.layout = dbc.Container(
             ],
             className="mb-2",
         ),
+        # Individual comparison charts
         dbc.Row(
             [
                 dbc.Col(
                     [
                         html.H4(
-                            "Individual Normalized Charts", className="text-center my-3"
+                            "Individual Daily Charts", className="text-center my-3"
                         ),
                         html.P(
-                            "Each chart shows normalized prices (Base 100) for better trend comparison.",
+                            "Each chart is independently zoomable. Use the zoom tools to examine specific areas of interest.",
                             className="text-center text-muted",
                         ),
                         dbc.Spinner(
                             dcc.Graph(
-                                id="individual-normalized-charts",
+                                id="comparison-charts",
                                 style={"height": "auto"},
                                 config={
                                     "displayModeBar": True,
@@ -1442,21 +928,20 @@ app.layout = dbc.Container(
             ],
             className="mb-4",
         ),
-        # Individual comparison charts
         dbc.Row(
             [
                 dbc.Col(
                     [
                         html.H4(
-                            "Individual Daily Charts", className="text-center my-3"
+                            "Individual Normalized Charts", className="text-center my-3"
                         ),
                         html.P(
-                            "Each chart is independently zoomable. Use the zoom tools to examine specific areas of interest.",
+                            "Each chart shows normalized prices (Base 100) for better trend comparison.",
                             className="text-center text-muted",
                         ),
                         dbc.Spinner(
                             dcc.Graph(
-                                id="comparison-charts",
+                                id="individual-normalized-charts",
                                 style={"height": "auto"},
                                 config={
                                     "displayModeBar": True,

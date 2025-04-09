@@ -35,4 +35,4 @@ start_date = last_weekday.strftime("%Y-%m-%d")
 end_date = (today + timedelta(days=1)).strftime("%Y-%m-%d")
 
 # Fetch data
-bars = api.get_bars(symbol, TimeFrame.Minute, start='2025-03-20').df
+bars = api.get_bars(symbol, TimeFrame.Minute, start="2025-03-20").df

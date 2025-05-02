@@ -5,3 +5,4 @@ pandas
 numpy
 plotly
 histdata
+alpaca-trade-api

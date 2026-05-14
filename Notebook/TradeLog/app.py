@@ -883,13 +883,37 @@ def update_views(
                 ),
                 dbc.CardBody(
                     [
-                        html.P(
-                            [html.Strong("Final Reflections: "), pos["notes"]],
-                            className="mb-3",
-                            style={
-                                "font-family": "Georgia, serif",
-                                "font-size": "1.05rem",
-                            },
+                        dbc.Row(
+                            [
+                                dbc.Col(
+                                    [
+                                        html.Label(
+                                            "Final Reflections & Analysis",
+                                            className="form-label",
+                                        ),
+                                        dbc.Textarea(
+                                            id={
+                                                "type": "journal-notes",
+                                                "index": pos["id"],
+                                            },
+                                            value=pos["notes"],
+                                            className="journal-entry-area mb-2",
+                                            placeholder="Add your post-trade analysis here...",
+                                        ),
+                                        dbc.Button(
+                                            "Update Reflections",
+                                            id={
+                                                "type": "btn-save-notes",
+                                                "index": pos["id"],
+                                            },
+                                            color="secondary",
+                                            size="sm",
+                                            className="mb-3",
+                                        ),
+                                    ],
+                                    width=12,
+                                ),
+                            ]
                         ),
                         dbc.Table(
                             [
@@ -1078,4 +1102,4 @@ def update_market_pulse(timeframe, n):
 
 
 if __name__ == "__main__":
-    app.run_server(debug=True)
+    app.run_server() # (debug=True)

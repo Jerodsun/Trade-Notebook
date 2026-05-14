@@ -42,6 +42,17 @@ def init_db():
         )
     ''')
 
+    # Create settings table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    ''')
+    
+    # Initialize starting balance if not exists
+    cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES ("starting_balance", "100000")')
+
     conn.commit()
     conn.close()
     print(f"Database initialized at {os.path.abspath(db_path)}")

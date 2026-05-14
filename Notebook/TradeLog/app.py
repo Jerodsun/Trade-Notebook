@@ -102,7 +102,7 @@ app.layout = dbc.Container([
     dcc.Store(id='delete-id-store'),
     html.Div([
         html.H1("Option Paper Trading Log", className="text-center my-4"),
-        html.P("0DTE & Intraday Specialist Terminal", className="text-center text-muted mb-3"),
+        html.P("jsun", className="text-center text-muted mb-3"),
         get_ticker_header(),
     ]),
     
@@ -206,13 +206,14 @@ def trigger_confirm(n_clicks):
      Input("open-pos-msg", "children"),
      Input({"type": "btn-close-exec", "index": dash.ALL}, "n_clicks"),
      Input("confirm-delete", "submit_n_clicks"),
-     Input({"type": "btn-save-notes", "index": dash.ALL}, "n_clicks")],
+     Input({"type": "btn-save-notes", "index": dash.ALL}, "n_clicks"),
+     Input({"type": "btn-delete-exec", "index": dash.ALL}, "n_clicks")],
     [State("delete-id-store", "data"),
      State({"type": "journal-notes", "index": dash.ALL}, "value"),
      State({"type": "journal-notes", "index": dash.ALL}, "id")],
     prevent_initial_call=False
 )
-def update_views(n1, n2, n3, n_confirm, n5, delete_id, notes_values, notes_ids):
+def update_views(n1, n2, n3, n_confirm, n5, n6, delete_id, notes_values, notes_ids):
     ctx = callback_context
     if ctx.triggered:
         trigger = ctx.triggered[0]['prop_id']
@@ -229,6 +230,11 @@ def update_views(n1, n2, n3, n_confirm, n5, delete_id, notes_values, notes_ids):
                 if nid['index'] == pos_id:
                     db_manager.update_position_notes(pos_id, val)
                     break
+                    
+        elif 'btn-delete-exec' in trigger:
+            trigger_json = trigger.split('.n_clicks')[0]
+            exec_id = json.loads(trigger_json)['index']
+            db_manager.delete_execution(exec_id)
 
     # Fetch Open Positions
     open_pos = db_manager.get_open_positions()
@@ -238,6 +244,9 @@ def update_views(n1, n2, n3, n_confirm, n5, delete_id, notes_values, notes_ids):
 
     for pos in open_pos:
         execs = db_manager.get_executions(pos['id'])
+        if not execs:
+            continue
+            
         exec_rows = [html.Tr([
             html.Td(pd.to_datetime(e['timestamp']).strftime("%H:%M:%S")),
             html.Td(e['action']),
@@ -246,6 +255,7 @@ def update_views(n1, n2, n3, n_confirm, n5, delete_id, notes_values, notes_ids):
             html.Td(f"${e['underlying_price']:.2f}"),
             html.Td(f"{e['delta']:.3f}" if e['delta'] else "-"),
             html.Td(f"{e['theta']:.3f}" if e['theta'] else "-"),
+            html.Td(dbc.Button("✕", id={"type": "btn-delete-exec", "index": e['id']}, color="danger", size="sm", outline=True, style={"padding": "0 5px", "line-height": "1"}))
         ]) for e in execs]
         
         start_time = pd.to_datetime(execs[0]['timestamp'])
@@ -259,7 +269,7 @@ def update_views(n1, n2, n3, n_confirm, n5, delete_id, notes_values, notes_ids):
                         html.Span(pos['strategy'], className="strategy-badge me-2") if pos['strategy'] else None,
                         html.Span(f"{pos['symbol']} {pos['strike']} {pos['option_type']} | Held: {held_str}")
                     ]),
-                    dbc.Col(dbc.Button("Delete", id={"type": "btn-delete-pos", "index": pos['id']}, color="danger", size="sm"), width="auto")
+                    dbc.Col(dbc.Button("Delete Position", id={"type": "btn-delete-pos", "index": pos['id']}, color="danger", size="sm"), width="auto")
                 ], justify="between", align="center")
             ),
             dbc.CardBody([
@@ -277,7 +287,7 @@ def update_views(n1, n2, n3, n_confirm, n5, delete_id, notes_values, notes_ids):
                 ]),
                 
                 dbc.Table([
-                    html.Thead(html.Tr([html.Th("Time"), html.Th("Action"), html.Th("Qty"), html.Th("Fill"), html.Th("Und"), html.Th("Δ"), html.Th("Θ")])),
+                    html.Thead(html.Tr([html.Th("Time"), html.Th("Action"), html.Th("Qty"), html.Th("Fill"), html.Th("Und"), html.Th("Δ"), html.Th("Θ"), html.Th("")])),
                     html.Tbody(exec_rows)
                 ], bordered=True, size="sm", responsive=True, className="mt-2"),
                 
@@ -298,7 +308,7 @@ def update_views(n1, n2, n3, n_confirm, n5, delete_id, notes_values, notes_ids):
     # Fetch Closed Positions
     closed_pos = db_manager.get_closed_positions()
     closed_rows = []
-    total_pl = 0
+    total_realized_pl = 0
     pl_data = []
     
     for pos in closed_pos:
@@ -313,7 +323,7 @@ def update_views(n1, n2, n3, n_confirm, n5, delete_id, notes_values, notes_ids):
         if pos['created_at'].startswith(today_str):
             today_pl += pos_pl
 
-        total_pl += pos_pl
+        total_realized_pl += pos_pl
         pl_data.append({'date': pos['created_at'], 'pl': pos_pl})
         
         closed_rows.append(html.Tr([
@@ -331,10 +341,16 @@ def update_views(n1, n2, n3, n_confirm, n5, delete_id, notes_values, notes_ids):
         html.Tbody(closed_rows)
     ], bordered=True, hover=True, responsive=True)
 
-    today_pl_view = html.H5([
-        "Today's Realized: ", 
-        html.Span(f"${today_pl:,.2f}", className="pl-positive" if today_pl >= 0 else "pl-negative")
-    ], className="mb-0")
+    today_pl_view = html.Div([
+        html.H5([
+            "Today's Realized: ", 
+            html.Span(f"${today_pl:,.2f}", className="pl-positive" if today_pl >= 0 else "pl-negative")
+        ], className="mb-0 d-inline me-4"),
+        html.H5([
+            "Account Value: ",
+            html.Span(f"${db_manager.get_starting_balance() + total_realized_pl:,.2f}", className="fw-bold")
+        ], className="mb-0 d-inline")
+    ])
 
     # Generate P&L Chart
     fig = go.Figure()
@@ -368,7 +384,7 @@ def update_views(n1, n2, n3, n_confirm, n5, delete_id, notes_values, notes_ids):
 
 @app.callback(
     Output({"type": "btn-close-exec", "index": dash.MATCH}, "disabled"),
-    Input({"type": "btn-close-exec", "index": dash.ALL}, "n_clicks"),
+    Input({"type": "btn-close-exec", "index": dash.MATCH}, "n_clicks"),
     State({"type": "close-action", "index": dash.MATCH}, "value"),
     State({"type": "close-qty", "index": dash.MATCH}, "value"),
     State({"type": "close-opt-price", "index": dash.MATCH}, "value"),
@@ -377,7 +393,7 @@ def update_views(n1, n2, n3, n_confirm, n5, delete_id, notes_values, notes_ids):
     prevent_initial_call=True
 )
 def handle_close_execution(n_clicks, action, qty, opt_price, und_price, btn_id):
-    if any(n_clicks):
+    if n_clicks:
         pos_id = btn_id['index']
         if all([action, qty, opt_price, und_price]):
             db_manager.add_execution(pos_id, action, qty, opt_price, und_price)
@@ -415,9 +431,14 @@ def update_market_pulse(timeframe, n):
     symbols = ["^SPX", "^NDX"]
     colors = {"^SPX": "#0f766e", "^NDX": "#6366f1"}
     
+    # Store history for day markers
+    main_history = None
+    
     for symbol in symbols:
         history = price_fetcher.get_index_history(symbol, timeframe)
         if history:
+            if not main_history:
+                main_history = history
             # Normalize to % change from start of period
             start_price = history['prices'][0]
             pct_changes = [(p - start_price) / start_price * 100 for p in history['prices']]
@@ -431,12 +452,33 @@ def update_market_pulse(timeframe, n):
                 line=dict(color=colors[symbol], width=2)
             ))
             
+    # Add day markers for 5d view
+    if timeframe == "5d" and main_history:
+        # Find the points where the date changes
+        dates = [t.date() for t in main_history['times']]
+        for i in range(1, len(dates)):
+            if dates[i] != dates[i-1]:
+                # Draw a vertical line at the start of the new day
+                fig.add_vline(
+                    x=main_history['times'][i],
+                    line_width=1,
+                    line_dash="dot",
+                    line_color="#cbd5e1"
+                )
+
     fig.update_layout(
         margin=dict(l=40, r=20, t=20, b=40),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
         font=dict(color='#64748b'),
-        xaxis=dict(showgrid=True, gridcolor='#f1f5f9'),
+        xaxis=dict(
+            showgrid=True, 
+            gridcolor='#f1f5f9',
+            rangebreaks=[
+                dict(bounds=["sat", "mon"]), # hide weekends
+                dict(bounds=[16, 9.5], pattern="hour"), # hide non-trading hours (4pm to 9:30am)
+            ]
+        ),
         yaxis=dict(showgrid=True, gridcolor='#f1f5f9', title="% Change"),
         template="plotly_white",
         hovermode="x unified",

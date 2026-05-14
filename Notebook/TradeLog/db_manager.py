@@ -112,3 +112,46 @@ def delete_position(position_id):
     cursor.execute('DELETE FROM positions WHERE id = ?', (position_id,))
     conn.commit()
     conn.close()
+
+def delete_execution(execution_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Get position_id before deleting
+    cursor.execute('SELECT position_id FROM executions WHERE id = ?', (execution_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return
+    pos_id = row['position_id']
+    
+    cursor.execute('DELETE FROM executions WHERE id = ?', (execution_id,))
+    
+    # Update position status
+    cursor.execute('SELECT action, quantity FROM executions WHERE position_id = ?', (pos_id,))
+    execs = cursor.fetchall()
+    
+    if not execs:
+        # If no executions left, delete the position entirely
+        cursor.execute('DELETE FROM positions WHERE id = ?', (pos_id,))
+    else:
+        net_qty = 0
+        for e in execs:
+            if e['action'] == 'Buy':
+                net_qty += e['quantity']
+            else:
+                net_qty -= e['quantity']
+                
+        status = "Closed" if net_qty == 0 else "Open"
+        cursor.execute('UPDATE positions SET status = ? WHERE id = ?', (status, pos_id))
+    
+    conn.commit()
+    conn.close()
+
+def get_starting_balance():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT value FROM settings WHERE key = "starting_balance"')
+    row = cursor.fetchone()
+    conn.close()
+    return float(row['value']) if row else 100000.0

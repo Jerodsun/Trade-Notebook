@@ -97,9 +97,13 @@ def get_open_positions_view():
 
 # Main Layout
 app.layout = dbc.Container([
+    dcc.Interval(id="ticker-interval", interval=60*1000, n_intervals=0),
+    dcc.ConfirmDialog(id='confirm-delete', message='Are you sure you want to delete this trade? This action cannot be undone.'),
+    dcc.Store(id='delete-id-store'),
     html.Div([
         html.H1("Option Paper Trading Log", className="text-center my-4"),
-        html.P("0DTE & Intraday Specialist Terminal", className="text-center text-muted mb-5"),
+        html.P("0DTE & Intraday Specialist Terminal", className="text-center text-muted mb-3"),
+        get_ticker_header(),
     ]),
     
     dbc.Tabs([
@@ -113,11 +117,33 @@ app.layout = dbc.Container([
             dbc.Row([
                 dbc.Col([
                     dbc.Card([
-                        dbc.CardHeader("Performance Overview"),
+                        dbc.CardHeader([
+                            html.Span("Market Pulse: SPX & NDX", className="fw-bold"),
+                            dbc.RadioItems(
+                                id="market-timeframe",
+                                options=[
+                                    {"label": "Today", "value": "1d"},
+                                    {"label": "This Week", "value": "5d"},
+                                ],
+                                value="1d",
+                                inline=True,
+                                className="float-end",
+                                inputStyle={"margin-left": "15px", "margin-right": "5px"},
+                                labelStyle={"font-size": "0.85rem", "color": "#64748b"}
+                            )
+                        ]),
+                        dbc.CardBody([
+                            dcc.Graph(id="market-pulse-chart", config={'displayModeBar': False}),
+                        ])
+                    ], className="mt-4 shadow-sm"),
+                ], width=12),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardHeader("Performance Overview", className="fw-bold"),
                         dbc.CardBody([
                             dcc.Graph(id="pl-chart", config={'displayModeBar': False}),
                         ])
-                    ], className="mt-4"),
+                    ], className="mt-4 shadow-sm"),
                 ], width=12),
                 dbc.Col([
                     html.H4("Trade History", className="mt-5 mb-4"),
@@ -156,6 +182,22 @@ def handle_open_position(n_clicks, symbol, opt_type, strike, expiry, action, qty
         return dbc.Alert(f"Error: {str(e)}", color="danger", className="mt-3")
 
 @app.callback(
+    [Output("confirm-delete", "displayed"),
+     Output("delete-id-store", "data")],
+    Input({"type": "btn-delete-pos", "index": dash.ALL}, "n_clicks"),
+    prevent_initial_call=True
+)
+def trigger_confirm(n_clicks):
+    if not any(n_clicks):
+        return False, None
+    ctx = callback_context
+    trigger = ctx.triggered[0]['prop_id']
+    import json
+    trigger_json = trigger.split('.n_clicks')[0]
+    pos_id = json.loads(trigger_json)['index']
+    return True, pos_id
+
+@app.callback(
     [Output("open-positions-list", "children"),
      Output("closed-positions-list", "children"),
      Output("pl-chart", "figure"),
@@ -163,22 +205,21 @@ def handle_open_position(n_clicks, symbol, opt_type, strike, expiry, action, qty
     [Input("btn-open-pos", "n_clicks"),
      Input("open-pos-msg", "children"),
      Input({"type": "btn-close-exec", "index": dash.ALL}, "n_clicks"),
-     Input({"type": "btn-delete-pos", "index": dash.ALL}, "n_clicks"),
+     Input("confirm-delete", "submit_n_clicks"),
      Input({"type": "btn-save-notes", "index": dash.ALL}, "n_clicks")],
-    [State({"type": "journal-notes", "index": dash.ALL}, "value"),
+    [State("delete-id-store", "data"),
+     State({"type": "journal-notes", "index": dash.ALL}, "value"),
      State({"type": "journal-notes", "index": dash.ALL}, "id")],
     prevent_initial_call=False
 )
-def update_views(n1, n2, n3, n4, n5, notes_values, notes_ids):
+def update_views(n1, n2, n3, n_confirm, n5, delete_id, notes_values, notes_ids):
     ctx = callback_context
     if ctx.triggered:
         trigger = ctx.triggered[0]['prop_id']
         import json
         
-        if 'btn-delete-pos' in trigger:
-            trigger_json = trigger.split('.n_clicks')[0]
-            pos_id = json.loads(trigger_json)['index']
-            db_manager.delete_position(pos_id)
+        if 'confirm-delete' in trigger and n_confirm:
+            db_manager.delete_position(delete_id)
             
         elif 'btn-save-notes' in trigger:
             trigger_json = trigger.split('.n_clicks')[0]
@@ -341,6 +382,68 @@ def handle_close_execution(n_clicks, action, qty, opt_price, und_price, btn_id):
         if all([action, qty, opt_price, und_price]):
             db_manager.add_execution(pos_id, action, qty, opt_price, und_price)
     return False
+
+@app.callback(
+    Output("live-tickers", "children"),
+    Input("ticker-interval", "n_intervals")
+)
+def update_tickers(n):
+    prices = price_fetcher.get_index_prices()
+    ticker_elements = []
+    
+    for symbol, data in prices.items():
+        if data:
+            name = "SPX" if symbol == "^SPX" else "NDX"
+            color = "pl-positive" if data['change'] >= 0 else "pl-negative"
+            ticker_elements.append(html.Div([
+                html.Span(f"{name}: ", className="text-muted fw-bold"),
+                html.Span(f"{data['price']:,.2f} ", className="fw-bold"),
+                html.Span(f"({data['percent']:+.2f}%)", className=color)
+            ]))
+        else:
+            ticker_elements.append(html.Div(f"{symbol} Unavailable", className="text-muted"))
+            
+    return ticker_elements
+
+@app.callback(
+    Output("market-pulse-chart", "figure"),
+    [Input("market-timeframe", "value"),
+     Input("ticker-interval", "n_intervals")]
+)
+def update_market_pulse(timeframe, n):
+    fig = go.Figure()
+    symbols = ["^SPX", "^NDX"]
+    colors = {"^SPX": "#0f766e", "^NDX": "#6366f1"}
+    
+    for symbol in symbols:
+        history = price_fetcher.get_index_history(symbol, timeframe)
+        if history:
+            # Normalize to % change from start of period
+            start_price = history['prices'][0]
+            pct_changes = [(p - start_price) / start_price * 100 for p in history['prices']]
+            
+            name = "SPX" if symbol == "^SPX" else "NDX"
+            fig.add_trace(go.Scatter(
+                x=history['times'],
+                y=pct_changes,
+                mode='lines',
+                name=name,
+                line=dict(color=colors[symbol], width=2)
+            ))
+            
+    fig.update_layout(
+        margin=dict(l=40, r=20, t=20, b=40),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color='#64748b'),
+        xaxis=dict(showgrid=True, gridcolor='#f1f5f9'),
+        yaxis=dict(showgrid=True, gridcolor='#f1f5f9', title="% Change"),
+        template="plotly_white",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    
+    return fig
 
 if __name__ == "__main__":
     app.run_server(debug=True)

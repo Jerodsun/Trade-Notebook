@@ -124,6 +124,7 @@ h4 {
     color: #334155;
     min-height: 120px;
     resize: vertical;
+    white-space: pre-wrap; /* Crucial for new lines */
 }
 
 .journal-entry-area:focus {

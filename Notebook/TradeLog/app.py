@@ -202,7 +202,8 @@ def get_new_position_form():
                                     dbc.Textarea(
                                         id="pos-notes",
                                         placeholder="Setup/Confidence/Plan...",
-                                        style={"height": "100px"},
+                                        className="journal-entry-area",
+                                        style={"height": "150px"},
                                     ),
                                 ]
                             )

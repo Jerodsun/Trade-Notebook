@@ -96,10 +96,17 @@ def calculate_greeks(S, K, T, r, sigma, option_type='Call'):
 def get_days_to_expiration(expiration_date_str):
     """
     expiration_date_str: 'YYYY-MM-DD'
-    Returns time to expiration in years.
+    Returns time to expiration in years, assuming 4:00 PM (16:00) expiration.
     """
-    expiry = datetime.strptime(expiration_date_str, '%Y-%m-%d')
+    expiry = datetime.strptime(expiration_date_str, '%Y-%m-%d').replace(hour=16, minute=0)
     now = datetime.now()
     delta = expiry - now
-    days = delta.days + (delta.seconds / 86400)
-    return max(0, days) / 365.0
+    
+    # Total seconds remaining until 4:00 PM on expiration day
+    seconds_remaining = delta.total_seconds()
+    
+    # If it's past 4:00 PM on expiration day, time is 0
+    if seconds_remaining <= 0:
+        return 0.0
+        
+    return seconds_remaining / (365 * 24 * 3600)

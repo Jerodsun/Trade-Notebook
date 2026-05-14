@@ -10,13 +10,13 @@ def get_connection():
     conn.execute('PRAGMA foreign_keys = ON')
     return conn
 
-def create_position(symbol, strike, expiration, option_type, notes=None):
+def create_position(symbol, strike, expiration, option_type, notes=None, strategy=None):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT INTO positions (symbol, strike, expiration, option_type, notes, status)
-        VALUES (?, ?, ?, ?, ?, 'Open')
-    ''', (symbol, strike, expiration, option_type, notes))
+        INSERT INTO positions (symbol, strike, expiration, option_type, notes, status, strategy)
+        VALUES (?, ?, ?, ?, ?, 'Open', ?)
+    ''', (symbol, strike, expiration, option_type, notes, strategy))
     pos_id = cursor.lastrowid
     conn.commit()
     conn.close()

@@ -5,34 +5,54 @@ import plotly.graph_objects as go
 import pandas as pd
 from datetime import datetime, date
 import db_manager
+import price_fetcher
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], title="Paper Trade Log")
 
 # Layout Components
+def get_ticker_header():
+    return dbc.Row([
+        dbc.Col([
+            html.Div(id="live-tickers", className="d-flex justify-content-center gap-4")
+        ], width=12)
+    ], className="mb-4")
+
 def get_new_position_form():
     return dbc.Card([
-        dbc.CardHeader("Log New Position"),
+        dbc.CardHeader("Log New Trade"),
         dbc.CardBody([
             dbc.Row([
                 dbc.Col([
                     dbc.Label("Symbol"),
                     dbc.Input(id="pos-symbol", placeholder="e.g. SPX", type="text"),
-                ], width=3),
+                ], width=6),
                 dbc.Col([
-                    dbc.Label("Option Type"),
+                    dbc.Label("Strategy"),
+                    dbc.Select(id="pos-strategy", options=[
+                        {"label": "0DTE Scalp", "value": "0DTE Scalp"},
+                        {"label": "0DTE Trend", "value": "0DTE Trend"},
+                        {"label": "Day Trade", "value": "Day Trade"},
+                        {"label": "Swing", "value": "Swing"},
+                        {"label": "Lotto", "value": "Lotto"},
+                    ], value="0DTE Scalp"),
+                ], width=6),
+            ], className="mb-3"),
+            dbc.Row([
+                dbc.Col([
+                    dbc.Label("Type"),
                     dbc.Select(id="pos-type", options=[
                         {"label": "Call", "value": "Call"},
                         {"label": "Put", "value": "Put"},
                     ], value="Call"),
-                ], width=3),
+                ], width=4),
                 dbc.Col([
                     dbc.Label("Strike"),
-                    dbc.Input(id="pos-strike", type="number", step=1),
-                ], width=3),
+                    dbc.Input(id="pos-strike", type="number", step=5),
+                ], width=4),
                 dbc.Col([
-                    dbc.Label("Expiration"),
+                    dbc.Label("Expiry"),
                     dcc.DatePickerSingle(id="pos-expiry", date=date.today()),
-                ], width=3),
+                ], width=4),
             ], className="mb-3"),
             dbc.Row([
                 dbc.Col([
@@ -43,32 +63,35 @@ def get_new_position_form():
                     ], value="Buy"),
                 ], width=3),
                 dbc.Col([
-                    dbc.Label("Quantity"),
+                    dbc.Label("Qty"),
                     dbc.Input(id="exec-qty", type="number", min=1, value=1),
                 ], width=3),
                 dbc.Col([
-                    dbc.Label("Option Price"),
-                    dbc.Input(id="exec-opt-price", type="number", step=0.01),
+                    dbc.Label("Fill"),
+                    dbc.Input(id="exec-opt-price", type="number", step=0.05),
                 ], width=3),
                 dbc.Col([
-                    dbc.Label("Underlying Price"),
+                    dbc.Label("Und Price"),
                     dbc.Input(id="exec-und-price", type="number", step=0.01),
                 ], width=3),
             ], className="mb-3"),
             dbc.Row([
                 dbc.Col([
-                    dbc.Label("Initial Notes"),
-                    dbc.Textarea(id="pos-notes", placeholder="Why are you taking this trade?"),
+                    dbc.Label("Notes"),
+                    dbc.Textarea(id="pos-notes", placeholder="Setup/Confidence/Plan..."),
                 ])
             ], className="mb-3"),
-            dbc.Button("Open Position", id="btn-open-pos", color="primary"),
+            dbc.Button("Log Position", id="btn-open-pos", color="primary", className="w-100"),
             html.Div(id="open-pos-msg", className="mt-2")
         ])
     ], className="mb-4")
 
 def get_open_positions_view():
     return html.Div([
-        html.H4("Open Positions"),
+        html.Div([
+            html.H4("Active Positions", className="d-inline"),
+            html.Div(id="today-pl-summary", className="float-end")
+        ], className="mb-4"),
         html.Div(id="open-positions-list")
     ])
 
@@ -76,7 +99,7 @@ def get_open_positions_view():
 app.layout = dbc.Container([
     html.Div([
         html.H1("Option Paper Trading Log", className="text-center my-4"),
-        html.P("Index Options Strategy Journal", className="text-center text-muted mb-5"),
+        html.P("0DTE & Intraday Specialist Terminal", className="text-center text-muted mb-5"),
     ]),
     
     dbc.Tabs([
@@ -118,14 +141,15 @@ app.layout = dbc.Container([
     State("exec-opt-price", "value"),
     State("exec-und-price", "value"),
     State("pos-notes", "value"),
+    State("pos-strategy", "value"),
     prevent_initial_call=True
 )
-def handle_open_position(n_clicks, symbol, opt_type, strike, expiry, action, qty, opt_price, und_price, notes):
+def handle_open_position(n_clicks, symbol, opt_type, strike, expiry, action, qty, opt_price, und_price, notes, strategy):
     if not all([symbol, opt_type, strike, expiry, action, qty, opt_price, und_price]):
         return dbc.Alert("Please fill all required fields.", color="danger", className="mt-3")
     
     try:
-        pos_id = db_manager.create_position(symbol, strike, expiry, opt_type, notes)
+        pos_id = db_manager.create_position(symbol, strike, expiry, opt_type, notes, strategy)
         db_manager.add_execution(pos_id, action, qty, opt_price, und_price)
         return dbc.Alert(f"Position opened successfully (ID: {pos_id})", color="success", className="mt-3")
     except Exception as e:
@@ -134,31 +158,47 @@ def handle_open_position(n_clicks, symbol, opt_type, strike, expiry, action, qty
 @app.callback(
     [Output("open-positions-list", "children"),
      Output("closed-positions-list", "children"),
-     Output("pl-chart", "figure")],
+     Output("pl-chart", "figure"),
+     Output("today-pl-summary", "children")],
     [Input("btn-open-pos", "n_clicks"),
      Input("open-pos-msg", "children"),
      Input({"type": "btn-close-exec", "index": dash.ALL}, "n_clicks"),
-     Input({"type": "btn-delete-pos", "index": dash.ALL}, "n_clicks")],
+     Input({"type": "btn-delete-pos", "index": dash.ALL}, "n_clicks"),
+     Input({"type": "btn-save-notes", "index": dash.ALL}, "n_clicks")],
+    [State({"type": "journal-notes", "index": dash.ALL}, "value"),
+     State({"type": "journal-notes", "index": dash.ALL}, "id")],
     prevent_initial_call=False
 )
-def update_views(n1, n2, n3, n4):
+def update_views(n1, n2, n3, n4, n5, notes_values, notes_ids):
     ctx = callback_context
     if ctx.triggered:
         trigger = ctx.triggered[0]['prop_id']
+        import json
+        
         if 'btn-delete-pos' in trigger:
-            import json
-            # Extract position ID from trigger string like '{"index":1,"type":"btn-delete-pos"}.n_clicks'
             trigger_json = trigger.split('.n_clicks')[0]
             pos_id = json.loads(trigger_json)['index']
             db_manager.delete_position(pos_id)
+            
+        elif 'btn-save-notes' in trigger:
+            trigger_json = trigger.split('.n_clicks')[0]
+            pos_id = json.loads(trigger_json)['index']
+            # Find the value corresponding to this pos_id
+            for val, nid in zip(notes_values, notes_ids):
+                if nid['index'] == pos_id:
+                    db_manager.update_position_notes(pos_id, val)
+                    break
 
     # Fetch Open Positions
     open_pos = db_manager.get_open_positions()
     open_list = []
+    today_pl = 0
+    today_str = date.today().strftime("%Y-%m-%d")
+
     for pos in open_pos:
         execs = db_manager.get_executions(pos['id'])
         exec_rows = [html.Tr([
-            html.Td(e['timestamp']),
+            html.Td(pd.to_datetime(e['timestamp']).strftime("%H:%M:%S")),
             html.Td(e['action']),
             html.Td(e['quantity']),
             html.Td(f"${e['option_price']:.2f}"),
@@ -167,32 +207,51 @@ def update_views(n1, n2, n3, n4):
             html.Td(f"{e['theta']:.3f}" if e['theta'] else "-"),
         ]) for e in execs]
         
+        start_time = pd.to_datetime(execs[0]['timestamp'])
+        held_delta = datetime.now() - start_time
+        held_str = f"{held_delta.seconds // 60}m {held_delta.seconds % 60}s" if held_delta.days == 0 else f"{held_delta.days}d"
+
         card = dbc.Card([
             dbc.CardHeader(
                 dbc.Row([
-                    dbc.Col(f"{pos['symbol']} {pos['strike']} {pos['option_type']} | Exp: {pos['expiration']}"),
+                    dbc.Col([
+                        html.Span(pos['strategy'], className="strategy-badge me-2") if pos['strategy'] else None,
+                        html.Span(f"{pos['symbol']} {pos['strike']} {pos['option_type']} | Held: {held_str}")
+                    ]),
                     dbc.Col(dbc.Button("Delete", id={"type": "btn-delete-pos", "index": pos['id']}, color="danger", size="sm"), width="auto")
                 ], justify="between", align="center")
             ),
             dbc.CardBody([
-                html.P([html.Strong("Journal: "), pos['notes']], className="mb-3"),
+                dbc.Row([
+                    dbc.Col([
+                        html.Label("Journal & Reflections", className="form-label"),
+                        dbc.Textarea(
+                            id={"type": "journal-notes", "index": pos['id']},
+                            value=pos['notes'],
+                            className="journal-entry-area mb-2",
+                            placeholder="How are you feeling? What's the plan? Log your thoughts here..."
+                        ),
+                        dbc.Button("Save Journal Entry", id={"type": "btn-save-notes", "index": pos['id']}, color="secondary", size="sm", className="mb-3")
+                    ], width=12),
+                ]),
+                
                 dbc.Table([
-                    html.Thead(html.Tr([html.Th("Time"), html.Th("Action"), html.Th("Qty"), html.Th("Opt Price"), html.Th("Und Price"), html.Th("Delta"), html.Th("Theta")])),
+                    html.Thead(html.Tr([html.Th("Time"), html.Th("Action"), html.Th("Qty"), html.Th("Fill"), html.Th("Und"), html.Th("Δ"), html.Th("Θ")])),
                     html.Tbody(exec_rows)
-                ], bordered=True, size="sm", responsive=True),
+                ], bordered=True, size="sm", responsive=True, className="mt-2"),
                 
                 html.Div([
-                    html.H6("Log Closing/Scaling Execution", className="mt-4 mb-3"),
+                    html.H6("Add Execution", className="mb-2", style={"font-size": "0.85rem", "text-transform": "uppercase", "color": "#64748b"}),
                     dbc.Row([
                         dbc.Col(dbc.Select(id={"type": "close-action", "index": pos['id']}, options=[{"label": "Buy", "value": "Buy"}, {"label": "Sell", "value": "Sell"}], value="Sell" if execs[0]['action'] == 'Buy' else "Buy"), width=12, sm=2),
                         dbc.Col(dbc.Input(id={"type": "close-qty", "index": pos['id']}, type="number", value=execs[0]['quantity']), width=12, sm=2),
-                        dbc.Col(dbc.Input(id={"type": "close-opt-price", "index": pos['id']}, placeholder="Opt Price", type="number", step=0.01), width=12, sm=3),
-                        dbc.Col(dbc.Input(id={"type": "close-und-price", "index": pos['id']}, placeholder="Und Price", type="number", step=0.01), width=12, sm=3),
+                        dbc.Col(dbc.Input(id={"type": "close-opt-price", "index": pos['id']}, placeholder="Price", type="number", step=0.01), width=12, sm=3),
+                        dbc.Col(dbc.Input(id={"type": "close-und-price", "index": pos['id']}, placeholder="Und", type="number", step=0.01), width=12, sm=3),
                         dbc.Col(dbc.Button("Log", id={"type": "btn-close-exec", "index": pos['id']}, color="primary", size="sm", className="w-100"), width=12, sm=2)
                     ], className="g-2")
-                ], className="bg-dark p-3 rounded-3 mt-3")
+                ], className="p-3 rounded-3 mt-3", style={"background-color": "#f8fafc", "border": "1px dashed #cbd5e1"})
             ])
-        ], className="mb-4 shadow-sm")
+        ], className="mb-4")
         open_list.append(card)
 
     # Fetch Closed Positions
@@ -203,7 +262,6 @@ def update_views(n1, n2, n3, n4):
     
     for pos in closed_pos:
         execs = db_manager.get_executions(pos['id'])
-        # Calculate P&L for this position
         pos_pl = 0
         for e in execs:
             if e['action'] == 'Buy':
@@ -211,22 +269,31 @@ def update_views(n1, n2, n3, n4):
             else:
                 pos_pl += e['quantity'] * e['option_price'] * 100
         
+        if pos['created_at'].startswith(today_str):
+            today_pl += pos_pl
+
         total_pl += pos_pl
         pl_data.append({'date': pos['created_at'], 'pl': pos_pl})
         
         closed_rows.append(html.Tr([
             html.Td(pos['created_at']),
+            html.Td(html.Span(pos['strategy'], className="strategy-badge") if pos['strategy'] else ""),
             html.Td(f"{pos['symbol']} {pos['strike']} {pos['option_type']}"),
             html.Td(pos['expiration']),
             html.Td(f"${pos_pl:,.2f}", className="pl-positive" if pos_pl >= 0 else "pl-negative"),
-            html.Td(pos['notes']),
+            html.Td(html.Small(pos['notes'], style={"display": "block", "max-width": "300px", "overflow": "hidden", "text-overflow": "ellipsis", "white-space": "nowrap"})),
             html.Td(dbc.Button("Delete", id={"type": "btn-delete-pos", "index": pos['id']}, color="danger", size="sm"))
         ]))
     
     closed_table = dbc.Table([
-        html.Thead(html.Tr([html.Th("Opened"), html.Th("Option"), html.Th("Expiry"), html.Th("P&L"), html.Th("Notes"), html.Th("Action")])),
+        html.Thead(html.Tr([html.Th("Opened"), html.Th("Strategy"), html.Th("Option"), html.Th("Expiry"), html.Th("P&L"), html.Th("Journal"), html.Th("Action")])),
         html.Tbody(closed_rows)
     ], bordered=True, hover=True, responsive=True)
+
+    today_pl_view = html.H5([
+        "Today's Realized: ", 
+        html.Span(f"${today_pl:,.2f}", className="pl-positive" if today_pl >= 0 else "pl-negative")
+    ], className="mb-0")
 
     # Generate P&L Chart
     fig = go.Figure()
@@ -234,36 +301,33 @@ def update_views(n1, n2, n3, n4):
         df_pl = pd.DataFrame(pl_data).sort_values('date')
         df_pl['cumulative_pl'] = df_pl['pl'].cumsum()
         
-        # Determine color based on P&L trend
-        line_color = '#22c55e' if df_pl['cumulative_pl'].iloc[-1] >= 0 else '#ef4444'
-        
         fig.add_trace(go.Scatter(
             x=df_pl['date'], 
             y=df_pl['cumulative_pl'], 
             mode='lines+markers', 
             name='Cumulative P&L',
-            line=dict(color=line_color, width=3),
-            marker=dict(size=8, color='#38bdf8'),
+            line=dict(color='#0f766e', width=3),
+            marker=dict(size=6, color='#6366f1'),
             fill='tozeroy',
-            fillcolor=f'rgba({56 if line_color == "#22c55e" else 239}, {189 if line_color == "#22c55e" else 68}, {248 if line_color == "#22c55e" else 68}, 0.1)'
+            fillcolor='rgba(15, 118, 110, 0.05)'
         ))
     
     fig.update_layout(
         margin=dict(l=20, r=20, t=20, b=20),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='#94a3b8'),
-        xaxis=dict(showgrid=True, gridcolor='#334155'),
-        yaxis=dict(showgrid=True, gridcolor='#334155'),
-        template="plotly_dark",
+        font=dict(color='#64748b'),
+        xaxis=dict(showgrid=True, gridcolor='#f1f5f9'),
+        yaxis=dict(showgrid=True, gridcolor='#f1f5f9'),
+        template="plotly_white",
         hovermode="x unified"
     )
 
-    return open_list, closed_table, fig
+    return open_list, closed_table, fig, today_pl_view
 
 @app.callback(
     Output({"type": "btn-close-exec", "index": dash.MATCH}, "disabled"),
-    Input({"type": "btn-close-exec", "index": dash.MATCH}, "n_clicks"),
+    Input({"type": "btn-close-exec", "index": dash.ALL}, "n_clicks"),
     State({"type": "close-action", "index": dash.MATCH}, "value"),
     State({"type": "close-qty", "index": dash.MATCH}, "value"),
     State({"type": "close-opt-price", "index": dash.MATCH}, "value"),
@@ -272,7 +336,7 @@ def update_views(n1, n2, n3, n4):
     prevent_initial_call=True
 )
 def handle_close_execution(n_clicks, action, qty, opt_price, und_price, btn_id):
-    if n_clicks:
+    if any(n_clicks):
         pos_id = btn_id['index']
         if all([action, qty, opt_price, und_price]):
             db_manager.add_execution(pos_id, action, qty, opt_price, und_price)

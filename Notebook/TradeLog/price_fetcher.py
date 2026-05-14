@@ -1,0 +1,39 @@
+import requests
+import json
+
+def get_index_prices():
+    """
+    Fetches delayed prices for SPX and NDX from Yahoo Finance.
+    Returns a dictionary with current prices.
+    """
+    symbols = ["^SPX", "^NDX"]
+    results = {}
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    
+    for symbol in symbols:
+        try:
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1m&range=1d"
+            response = requests.get(url, headers=headers, timeout=5)
+            data = response.json()
+            
+            # Extract the latest regular market price
+            meta = data['chart']['result'][0]['meta']
+            current_price = meta.get('regularMarketPrice')
+            prev_close = meta.get('previousClose')
+            
+            change = current_price - prev_close
+            change_percent = (change / prev_close) * 100
+            
+            results[symbol] = {
+                'price': current_price,
+                'change': change,
+                'percent': change_percent
+            }
+        except Exception as e:
+            print(f"Error fetching {symbol}: {e}")
+            results[symbol] = None
+            
+    return results

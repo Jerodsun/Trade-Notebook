@@ -82,7 +82,7 @@ def get_new_position_form():
                         [
                             dbc.Col(
                                 [
-                                    dbc.Label("Type"),
+                                    dbc.Label("Option Type"),
                                     dbc.Select(
                                         id="pos-type",
                                         options=[
@@ -92,29 +92,31 @@ def get_new_position_form():
                                         value="Call",
                                     ),
                                 ],
-                                width=4,
+                                width=6,
                             ),
                             dbc.Col(
                                 [
-                                    dbc.Label("Strike"),
+                                    dbc.Label("Strike Price"),
                                     dbc.Input(id="pos-strike", type="number", step=5),
                                 ],
-                                width=4,
-                            ),
-                            dbc.Col(
-                                [
-                                    dbc.Label("Expiry"),
-                                    dcc.DatePickerSingle(
-                                        id="pos-expiry", date=date.today()
-                                    ),
-                                ],
-                                width=4,
+                                width=6,
                             ),
                         ],
                         className="mb-3",
                     ),
                     dbc.Row(
                         [
+                            dbc.Col(
+                                [
+                                    dbc.Label("Option Expiry"),
+                                    dcc.DatePickerSingle(
+                                        id="pos-expiry",
+                                        date=date.today(),
+                                        className="w-100",
+                                    ),
+                                ],
+                                width=6,
+                            ),
                             dbc.Col(
                                 [
                                     dbc.Label("Action"),
@@ -127,29 +129,27 @@ def get_new_position_form():
                                         value="Buy",
                                     ),
                                 ],
-                                width=3,
+                                width=6,
                             ),
-                            dbc.Col(
-                                [
-                                    dbc.Label("Qty"),
-                                    dbc.Input(
-                                        id="exec-qty", type="number", min=1, value=1
-                                    ),
-                                ],
-                                width=3,
-                            ),
+                        ],
+                        className="mb-3",
+                    ),
+                    dbc.Row(
+                        [
                             dbc.Col(
                                 [
                                     dbc.Label("Trade Date"),
                                     dcc.DatePickerSingle(
-                                        id="exec-date", date=date.today()
+                                        id="exec-date",
+                                        date=date.today(),
+                                        className="w-100",
                                     ),
                                 ],
-                                width=3,
+                                width=6,
                             ),
                             dbc.Col(
                                 [
-                                    dbc.Label("Time"),
+                                    dbc.Label("Execution Time"),
                                     dbc.Input(
                                         id="exec-time",
                                         type="text",
@@ -157,13 +157,22 @@ def get_new_position_form():
                                         value=datetime.now().strftime("%H:%M:%S"),
                                     ),
                                 ],
-                                width=3,
+                                width=6,
                             ),
                         ],
                         className="mb-3",
                     ),
                     dbc.Row(
                         [
+                            dbc.Col(
+                                [
+                                    dbc.Label("Quantity"),
+                                    dbc.Input(
+                                        id="exec-qty", type="number", min=1, value=1
+                                    ),
+                                ],
+                                width=4,
+                            ),
                             dbc.Col(
                                 [
                                     dbc.Label("Fill Price"),
@@ -171,16 +180,16 @@ def get_new_position_form():
                                         id="exec-opt-price", type="number", step=0.05
                                     ),
                                 ],
-                                width=6,
+                                width=4,
                             ),
                             dbc.Col(
                                 [
-                                    dbc.Label("Underlying Price"),
+                                    dbc.Label("Underlying"),
                                     dbc.Input(
                                         id="exec-und-price", type="number", step=0.01
                                     ),
                                 ],
-                                width=6,
+                                width=4,
                             ),
                         ],
                         className="mb-3",
@@ -189,10 +198,11 @@ def get_new_position_form():
                         [
                             dbc.Col(
                                 [
-                                    dbc.Label("Notes"),
+                                    dbc.Label("Journal Notes"),
                                     dbc.Textarea(
                                         id="pos-notes",
                                         placeholder="Setup/Confidence/Plan...",
+                                        style={"height": "100px"},
                                     ),
                                 ]
                             )
@@ -239,9 +249,9 @@ app.layout = dbc.Container(
         dcc.Store(id="delete-id-store"),
         html.Div(
             [
-                html.H1("Option Paper Trading Log", className="text-center my-4"),
+                html.H1("Q2 2026 Trading Log", className="text-center my-4"),
                 html.P(
-                    "0DTE & Intraday Specialist Terminal",
+                    "jsun",
                     className="text-center text-muted mb-3",
                 ),
                 get_ticker_header(),
